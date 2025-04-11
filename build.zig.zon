@@ -1,0 +1,28 @@
+.{
+    .name = .zvoxels,
+    .version = "0.1.0",
+    .fingerprint = 0xf3bedbce12840e29, // Changing this has security and trust implications.
+    .minimum_zig_version = "0.14.0",
+
+    .dependencies = .{
+        .vulkan_headers = .{
+            .url = "https://github.com/KhronosGroup/Vulkan-Headers/archive/v1.3.283.tar.gz",
+            .hash = "N-V-__8AAAkkoQGn5z1yoNVrwqZfnYmZp8AZ5CJgoHRMQI0c",
+        },
+
+        .vulkan = .{
+            .url = "git+https://github.com/Snektron/vulkan-zig.git#42e7a8409b8150e1cbd57a8ff8cec219114bac74",
+            .hash = "vulkan-0.0.0-r7Ytx2dUAwDhoUvuIqliqPUbyDZZi0bl_CQIwspUpHs_",
+        },
+        .sdl = .{
+            .url = "git+https://github.com/ikskuh/SDL.zig.git#424ff5f9245ef352e4c508c77ddaeed2f46bd605",
+            .hash = "SDL2-0.0.0-yMCQigakBADGJHtb2ljt13P_cCnG8Y819HRnIibNVPFk",
+        },
+    },
+
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+}
