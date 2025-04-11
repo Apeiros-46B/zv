@@ -2,6 +2,7 @@ const std = @import("std");
 const sdl = @import("sdl2");
 const vk = @import("vulkan");
 
+const log = @import("log.zig");
 const Self = @This();
 const cstr = [*:0]const u8;
 
@@ -30,7 +31,7 @@ const REQUIRED_DEVICE_EXTS = [_]cstr {"VK_KHR_swapchain"};
 const DEBUG_MSGR_CREATE_INFO = vk.DebugUtilsMessengerCreateInfoEXT {
     .message_severity = .{
         .verbose_bit_ext = true,
-        .info_bit_ext = false,
+        .info_bit_ext = true,
         .warning_bit_ext = true,
         .error_bit_ext = true,
     },
@@ -47,27 +48,17 @@ fn printDebugMsg(
     severity: vk.DebugUtilsMessageSeverityFlagsEXT,
     msg_type: vk.DebugUtilsMessageTypeFlagsEXT,
     p_callback_data: ?*const vk.DebugUtilsMessengerCallbackDataEXT,
-    p_user_data: ?*anyopaque,
+    _: ?*anyopaque,
 ) callconv(vk.vulkan_call_conv) vk.Bool32 {
-    _ = p_user_data;
-
-    var severity_str: cstr = "**";
-    if (severity.error_bit_ext) {
-        severity_str = "\x1b[31mEE";
-    } else if (severity.warning_bit_ext) {
-        severity_str = "\x1b[33mWW";
-    } else if (severity.info_bit_ext) {
-        severity_str = "\x1b[34mII";
-    }
-
-    var type_str: cstr = "";
+    var scope: ?cstr = null;
     if (msg_type.validation_bit_ext) {
-        type_str = "/Val";
+        scope = "val";
     } else if (msg_type.performance_bit_ext) {
-        type_str = "/Perf";
+        scope = "perf";
     }
+    const msg = p_callback_data.?.p_message.?;
 
-    std.debug.print("[{s}{s}\x1b[0m] {s}\n", .{ severity_str, type_str, p_callback_data.?.p_message.? });
+    log.print(log.Severity.fromFlags(severity), scope, "{s}", .{ msg });
 
     return vk.FALSE;
 }
