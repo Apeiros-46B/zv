@@ -34,6 +34,8 @@ const SEVERITY_STR = [_]cstr {
     "\x1b[37m**",
 };
 
+// modified version of std.log.defaultLog function that supports non-comptime
+// severity level and scope
 pub fn print(
     severity: Severity,
     scope: ?cstr,
