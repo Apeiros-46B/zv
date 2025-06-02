@@ -1,7 +1,7 @@
 const std = @import("std");
 const vk = @import("vulkan");
 
-const cstr = [*:0]const u8;
+const Cstr = [*:0]const u8;
 
 const MAX_LEVEL = Severity.info;
 
@@ -27,7 +27,7 @@ pub const Severity = enum(u2) {
         return @intFromEnum(self) > @intFromEnum(MAX_LEVEL);
     }
 };
-const SEVERITY_STR = [_]cstr {
+const SEVERITY_STR = [_]Cstr {
     "\x1b[1;31mEE\x1b[0m",
     "\x1b[1;33mWW\x1b[0m",
     "\x1b[34mII\x1b[0m",
@@ -38,7 +38,7 @@ const SEVERITY_STR = [_]cstr {
 // severity level and scope
 pub fn print(
     severity: Severity,
-    scope: ?cstr,
+    scope: ?Cstr,
     comptime format: []const u8,
     args: anytype,
 ) void {

@@ -3,8 +3,9 @@ const sdl = @import("sdl2");
 const vk = @import("vulkan");
 
 const log = @import("log.zig");
+const Swapchain = @import("swapchain.zig");
+const Cstr = [*:0]const u8;
 const Self = @This();
-const cstr = [*:0]const u8;
 
 alloc: std.mem.Allocator,
 
@@ -21,11 +22,16 @@ pdev: vk.PhysicalDevice,
 pdev_props: vk.PhysicalDeviceProperties,
 
 dev: vk.DeviceProxy,
-queue: vk.QueueProxy,
+unique_families: u32,
+graphics_q: Queue,
+compute_q: Queue,
+present_q: Queue,
+
+swapchain: Swapchain,
 
 const VALIDATION_ENABLED = @import("builtin").mode == .Debug;
-const REQUIRED_VALIDATION_LAYERS = [_]cstr {"VK_LAYER_KHRONOS_validation"};
-const REQUIRED_DEVICE_EXTS = [_]cstr {"VK_KHR_swapchain"};
+const REQUIRED_VALIDATION_LAYERS = [_]Cstr { "VK_LAYER_KHRONOS_validation" };
+const REQUIRED_DEVICE_EXTS = [_]Cstr { "VK_KHR_swapchain" };
 
 // {{{ debug messenger
 const DEBUG_MSGR_CREATE_INFO = vk.DebugUtilsMessengerCreateInfoEXT {
@@ -50,7 +56,7 @@ fn printDebugMsg(
     p_callback_data: ?*const vk.DebugUtilsMessengerCallbackDataEXT,
     _: ?*anyopaque,
 ) callconv(vk.vulkan_call_conv) vk.Bool32 {
-    var scope: ?cstr = null;
+    var scope: ?Cstr = null;
     if (msg_type.validation_bit_ext) {
         scope = "val";
     } else if (msg_type.performance_bit_ext) {
@@ -77,7 +83,10 @@ pub fn init(alloc: std.mem.Allocator, window: *sdl.Window) !Self {
     try self.createInstance(window);
     errdefer self.inst.destroyInstance(null);
 
-    self.debug_msgr = try self.inst.createDebugUtilsMessengerEXT(&DEBUG_MSGR_CREATE_INFO, null);
+    self.debug_msgr = try self.inst.createDebugUtilsMessengerEXT(
+        &DEBUG_MSGR_CREATE_INFO,
+        null,
+    );
     errdefer self.inst.destroyDebugUtilsMessengerEXT(self.debug_msgr, null);
 
     self.surf = try sdl.vulkan.createSurface(window.*, self.inst.handle);
@@ -86,16 +95,23 @@ pub fn init(alloc: std.mem.Allocator, window: *sdl.Window) !Self {
     try self.createDevice(try self.pickPhysDevice());
     errdefer self.dev.destroyDevice(null);
 
+    const extent: vk.Extent2D = .{
+        .height = @intCast(window.getSize().height),
+        .width = @intCast(window.getSize().width),
+    };
+    self.swapchain = try Swapchain.init(&self, self.alloc, extent);
+    errdefer self.swapchain.deinit();
+
     return self;
 }
 
-pub fn deinit(self: *Self) void {
+pub fn deinit(self: Self) void {
+    self.swapchain.deinit();
     self.dev.destroyDevice(null);
     self.inst.destroySurfaceKHR(self.surf, null);
     self.inst.destroyDebugUtilsMessengerEXT(self.debug_msgr, null);
     self.inst.destroyInstance(null);
     sdl.vulkan.unloadLibrary();
-    self.* = undefined;
 }
 
 // {{{ instance
@@ -105,10 +121,10 @@ fn createInstance(self: *Self, window: *sdl.Window) !void {
     }
 
     const num_exts = sdl.vulkan.getInstanceExtensionsCount(window.*);
-    var exts = try std.ArrayList(cstr).initCapacity(self.alloc, num_exts + 1);
+    var exts = try std.ArrayList(Cstr).initCapacity(self.alloc, num_exts + 1);
     defer exts.deinit();
 
-    const buf = try self.alloc.alloc(cstr, num_exts);
+    const buf = try self.alloc.alloc(Cstr, num_exts);
     defer self.alloc.free(buf);
     _ = try sdl.vulkan.getInstanceExtensions(window.*, buf);
     try exts.appendSlice(buf);
@@ -140,9 +156,9 @@ fn createInstance(self: *Self, window: *sdl.Window) !void {
         create_info.p_next = null;
     }
 
-    const instance = try self.vkb.createInstance(&create_info, null);
-    self.vki = vk.InstanceWrapper.load(instance, self.loader);
-    self.inst = vk.InstanceProxy.init(instance, &self.vki);
+    const inst = try self.vkb.createInstance(&create_info, null);
+    self.vki = vk.InstanceWrapper.load(inst, self.loader);
+    self.inst = vk.InstanceProxy.init(inst, &self.vki);
 }
 
 fn checkValidationSupport(self: *const Self) !bool {
@@ -169,7 +185,44 @@ fn checkValidationSupport(self: *const Self) !bool {
 // }}}
 
 // {{{ physical device
-fn pickPhysDevice(self: *Self) !PhysDeviceCandidate {
+const PdevCandidate = struct {
+    score: u32,
+    pdev: vk.PhysicalDevice,
+    props: vk.PhysicalDeviceProperties,
+    queues: QueueConfiguration,
+};
+
+const QueueConfiguration = struct {
+    graphics_family: u32,
+    compute_family: u32,
+    present_family: u32,
+
+    fn countUnique(self: *const QueueConfiguration) u32 {
+        var seen = [_]?u32 {null} ** 3;
+        var n: u32 = 0;
+
+        const families = [_]u32 {
+            self.graphics_family,
+            self.compute_family,
+            self.present_family
+        };
+        for (families) |family| {
+            const already_seen = for (seen) |seen_family| {
+                if (seen_family != null and family == seen_family.?) {
+                    break true;
+                }
+            } else false;
+
+            if (!already_seen) {
+                seen[n] = family;
+                n += 1;
+            }
+        }
+        return n;
+    }
+};
+
+fn pickPhysDevice(self: *Self) !PdevCandidate {
     const pdevs = try self.inst.enumeratePhysicalDevicesAlloc(self.alloc);
     defer self.alloc.free(pdevs);
 
@@ -178,10 +231,11 @@ fn pickPhysDevice(self: *Self) !PhysDeviceCandidate {
     }
 
     var best_score: u32 = 0;
-    var best_candidate: ?PhysDeviceCandidate = null;
+    var best_candidate: ?PdevCandidate = null;
 
     for (pdevs) |pdev| {
-        const candidate = scorePhysDevice(self.alloc, self.inst, self.surf, pdev) orelse continue;
+        const candidate = scorePhysDevice(self.alloc, self.inst, self.surf, pdev)
+            orelse continue;
         if (candidate.score > best_score) {
             best_score = candidate.score;
             best_candidate = candidate;
@@ -196,20 +250,13 @@ fn pickPhysDevice(self: *Self) !PhysDeviceCandidate {
     return best_candidate.?;
 }
 
-const PhysDeviceCandidate = struct {
-    score: u32,
-    pdev: vk.PhysicalDevice,
-    props: vk.PhysicalDeviceProperties,
-    queues: QueueConfiguration,
-};
-
 // TODO: improve this metric
 fn scorePhysDevice(
     alloc: std.mem.Allocator,
     inst: vk.InstanceProxy,
     surf: vk.SurfaceKHR,
     pdev: vk.PhysicalDevice,
-) ?PhysDeviceCandidate {
+) ?PdevCandidate {
     const ext_supported = checkExtSupport(alloc, inst, pdev) catch false;
     if (!ext_supported) {
         return null;
@@ -230,7 +277,7 @@ fn scorePhysDevice(
         }
         score += props.limits.max_compute_shared_memory_size;
 
-        return PhysDeviceCandidate {
+        return PdevCandidate {
             .score = score,
             .pdev = pdev,
             .props = props,
@@ -285,43 +332,16 @@ fn checkExtSupport(
     return true;
 }
 
-const QueueConfiguration = struct {
-    graphics_family: u32,
-    compute_family: u32,
-    present_family: u32,
-
-    fn countUnique(self: *const QueueConfiguration) u32 {
-        var seen = [_]?u32 {null} ** 3;
-        var n: u32 = 0;
-
-        const families = [_]u32 {
-            self.graphics_family,
-            self.compute_family,
-            self.present_family
-        };
-        for (families) |family| {
-            const already_seen = for (seen) |seen_family| {
-                if (seen_family != null and family == seen_family.?) {
-                    break true;
-                }
-            } else false;
-
-            if (!already_seen) {
-                seen[n] = family;
-                n += 1;
-            }
-        }
-        return n;
-    }
-};
-
 fn findQueues(
     alloc: std.mem.Allocator,
     inst: vk.InstanceProxy,
     surf: vk.SurfaceKHR,
     pdev: vk.PhysicalDevice,
 ) !?QueueConfiguration {
-    const families = try inst.getPhysicalDeviceQueueFamilyPropertiesAlloc(pdev, alloc);
+    const families = try inst.getPhysicalDeviceQueueFamilyPropertiesAlloc(
+        pdev,
+        alloc
+    );
     defer alloc.free(families);
 
     var graphics_family: ?u32 = null;
@@ -330,13 +350,20 @@ fn findQueues(
 
     for (families, 0..) |properties, i| {
         const family: u32 = @intCast(i);
+
         if (graphics_family == null and properties.queue_flags.graphics_bit) {
             graphics_family = family;
         }
         if (compute_family == null and properties.queue_flags.compute_bit) {
             compute_family = family;
         }
-        if (present_family == null and (try inst.getPhysicalDeviceSurfaceSupportKHR(pdev, family, surf)) == vk.TRUE) {
+
+        const supported = try inst.getPhysicalDeviceSurfaceSupportKHR(
+            pdev,
+            family,
+            surf
+        );
+        if (present_family == null and supported == vk.TRUE) {
             present_family = family;
         }
     }
@@ -353,11 +380,25 @@ fn findQueues(
 }
 // }}}
 
-// {{{ logical device
-fn createDevice(self: *Self, candidate: PhysDeviceCandidate) !void {
+// {{{ logical device and queues
+pub const Queue = struct {
+    handle: vk.Queue,
+    family: u32,
+
+    fn init(dev: vk.DeviceProxy, family: u32) Queue {
+        return .{
+            .handle = dev.getDeviceQueue(family, 0),
+            .family = family,
+        };
+    }
+};
+
+fn createDevice(self: *Self, candidate: PdevCandidate) !void {
+    self.unique_families = candidate.queues.countUnique();
+
     const priority = [_]f32 {1};
     const dev = try self.inst.createDevice(self.pdev, &.{
-        .queue_create_info_count = candidate.queues.countUnique(),
+        .queue_create_info_count = self.unique_families,
         .p_queue_create_infos = &.{
             .{
                 .queue_family_index = candidate.queues.graphics_family,
@@ -375,12 +416,17 @@ fn createDevice(self: *Self, candidate: PhysDeviceCandidate) !void {
                 .p_queue_priorities = &priority,
             },
         },
-        .enabled_extension_count = REQUIRED_DEVICE_EXTS.len,
+        .enabled_extension_count = @intCast(REQUIRED_DEVICE_EXTS.len),
         .pp_enabled_extension_names = @ptrCast(&REQUIRED_DEVICE_EXTS),
     }, null);
 
     self.vkd = vk.DeviceWrapper.load(dev, self.vki.dispatch.vkGetDeviceProcAddr.?);
     self.dev = vk.DeviceProxy.init(dev, &self.vkd);
+
+    // retrieve queues
+    self.graphics_q = Queue.init(self.dev, candidate.queues.graphics_family);
+    self.compute_q = Queue.init(self.dev, candidate.queues.compute_family);
+    self.present_q = Queue.init(self.dev, candidate.queues.present_family);
 }
 // }}}
 
