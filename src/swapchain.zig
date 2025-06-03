@@ -23,22 +23,20 @@ next_img_acq: vk.Semaphore,
 
 pub fn init(
     vkc: *const VulkanCtx,
-    alloc: std.mem.Allocator,
     extent: vk.Extent2D,
 ) !Self {
-    return try initRecycle(vkc, alloc, extent, .null_handle);
+    return try initRecycle(vkc, extent, .null_handle);
 }
 
 pub fn initRecycle(
     vkc: *const VulkanCtx,
-    alloc: std.mem.Allocator,
     extent: vk.Extent2D,
     prev: vk.SwapchainKHR,
 ) !Self {
     var self: Self = undefined;
 
     self.vkc = vkc;
-    self.alloc = alloc;
+    self.alloc = vkc.alloc;
 
     const caps = try vkc.inst.getPhysicalDeviceSurfaceCapabilitiesKHR(
         vkc.pdev,
@@ -186,7 +184,7 @@ fn findActualExtent(
     caps: vk.SurfaceCapabilitiesKHR,
     extent: vk.Extent2D
 ) void {
-    if (caps.current_extent.width != 0xFFFF_FFFF) {
+    if (caps.current_extent.width != std.math.maxInt(u32)) {
         self.extent = caps.current_extent;
     } else {
         self.extent = .{

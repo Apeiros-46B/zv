@@ -4,6 +4,7 @@ const vk = @import("vulkan");
 
 const log = @import("log.zig");
 const Swapchain = @import("swapchain.zig");
+const Pipelines = @import("pipelines.zig");
 const Cstr = [*:0]const u8;
 const Self = @This();
 
@@ -28,6 +29,7 @@ compute_q: Queue,
 present_q: Queue,
 
 swapchain: Swapchain,
+pipelines: Pipelines,
 
 const VALIDATION_ENABLED = @import("builtin").mode == .Debug;
 const REQUIRED_VALIDATION_LAYERS = [_]Cstr { "VK_LAYER_KHRONOS_validation" };
@@ -99,13 +101,16 @@ pub fn init(alloc: std.mem.Allocator, window: *sdl.Window) !Self {
         .height = @intCast(window.getSize().height),
         .width = @intCast(window.getSize().width),
     };
-    self.swapchain = try Swapchain.init(&self, self.alloc, extent);
+    self.swapchain = try Swapchain.init(&self, extent);
     errdefer self.swapchain.deinit();
+
+    self.pipelines = try Pipelines.init(&self);
 
     return self;
 }
 
 pub fn deinit(self: Self) void {
+    self.pipelines.deinit();
     self.swapchain.deinit();
     self.dev.destroyDevice(null);
     self.inst.destroySurfaceKHR(self.surf, null);
