@@ -1,7 +1,7 @@
 const std = @import("std");
 const vk = @import("vulkan");
 
-const VulkanCtx = @import("vk.zig");
+const Vulkan = @import("vk.zig");
 const Self = @This();
 
 pub const PresentState = enum {
@@ -9,7 +9,7 @@ pub const PresentState = enum {
     suboptimal,
 };
 
-vkc: *const VulkanCtx,
+vkc: *const Vulkan,
 alloc: std.mem.Allocator,
 
 fmt: vk.SurfaceFormatKHR,
@@ -21,18 +21,32 @@ imgs: []SwapImage,
 img_idx: u32,
 next_img_acq: vk.Semaphore,
 
-pub fn init(
-    vkc: *const VulkanCtx,
-    extent: vk.Extent2D,
-) !Self {
+pub fn init(vkc: *const Vulkan, extent: vk.Extent2D) !Self {
     return try initRecycle(vkc, extent, .null_handle);
 }
 
-pub fn initRecycle(
-    vkc: *const VulkanCtx,
-    extent: vk.Extent2D,
-    prev: vk.SwapchainKHR,
-) !Self {
+// secondary initialization step which can only be done after the Pipelines
+// (which depends on the swapchain extent and format)'s render pass is created
+pub fn createFramebuffers(self: *Self, render_pass: vk.RenderPass) !void {
+    var i: usize = 0;
+    errdefer for (self.imgs[0..i]) |img| self.vkc.dev.destroyFramebuffer(
+        img.framebuffer.?,
+        null
+    );
+    for (self.imgs) |img| {
+        self.imgs[i].framebuffer = try self.vkc.dev.createFramebuffer(&.{
+            .render_pass = render_pass,
+            .attachment_count = 1,
+            .p_attachments = (&img.view)[0..1],
+            .width = self.extent.width,
+            .height = self.extent.height,
+            .layers = 1,
+        }, null);
+        i += 1;
+    }
+}
+
+pub fn initRecycle(vkc: *const Vulkan, extent: vk.Extent2D, prev: vk.SwapchainKHR) !Self {
     var self: Self = undefined;
 
     self.vkc = vkc;
@@ -56,12 +70,8 @@ pub fn initRecycle(
         img_count = @min(img_count, caps.max_image_count);
     }
 
-    const families = [_]u32 {
-        vkc.graphics_q.family,
-        vkc.compute_q.family,
-        vkc.present_q.family
-    };
-    const sharing_mode: vk.SharingMode = if (vkc.unique_families > 1)
+    const families = vkc.queue_config.families();
+    const sharing_mode: vk.SharingMode = if (vkc.queue_config.unique > 1)
         .concurrent
     else
         .exclusive;
@@ -92,25 +102,15 @@ pub fn initRecycle(
         vkc.dev.destroySwapchainKHR(prev, null);
     }
 
+    self.img_idx = 0;
+
     try self.initImgs();
     errdefer self.deinitImgs();
 
     self.next_img_acq = try vkc.dev.createSemaphore(&.{}, null);
     errdefer vkc.dev.destroySemaphore(self.next_img_acq, null);
 
-    const res = try vkc.dev.acquireNextImageKHR(
-        self.handle,
-        std.math.maxInt(u64),
-        self.next_img_acq,
-        .null_handle
-    );
-    if (res.result != .success) {
-        return error.ImageAcquireFailed;
-    }
-    std.mem.swap(vk.Semaphore,
-        &self.imgs[res.image_index].img_acq,
-        &self.next_img_acq
-    );
+    try self.acqNext();
 
     return self;
 }
@@ -131,6 +131,26 @@ pub fn deinit(self: Self) void {
 fn deinitPartial(self: Self) void {
     self.deinitImgs();
     self.vkc.dev.destroySemaphore(self.next_img_acq, null);
+}
+
+pub fn getImg(self: *Self) SwapImage {
+    return self.imgs[self.img_idx];
+}
+
+pub fn acqNext(self: *Self) !void {
+    const res = try self.vkc.dev.acquireNextImageKHR(
+        self.handle,
+        std.math.maxInt(u64),
+        self.next_img_acq,
+        .null_handle
+    );
+    if (res.result != .success) {
+        return error.ImageAcquireFailed;
+    }
+    std.mem.swap(vk.Semaphore,
+        &self.imgs[res.image_index].img_acq,
+        &self.next_img_acq
+    );
 }
 
 pub fn waitAll(self: Self) !void {
@@ -207,11 +227,13 @@ fn findActualExtent(
 const SwapImage = struct {
     img: vk.Image,
     view: vk.ImageView,
+    framebuffer: ?vk.Framebuffer,
+
     img_acq: vk.Semaphore,
     render_finished: vk.Semaphore,
     frame_fence: vk.Fence,
 
-    fn init(vkc: *const VulkanCtx, fmt: vk.Format, img: vk.Image) !SwapImage {
+    fn init(vkc: *const Vulkan, fmt: vk.Format, img: vk.Image) !SwapImage {
         var self: SwapImage = undefined;
 
         self.img = img;
@@ -235,6 +257,9 @@ const SwapImage = struct {
         }, null);
         errdefer vkc.dev.destroyImageView(self.view, null);
 
+        // the framebuffer is overwritten later when we have created the render pass
+        self.framebuffer = null;
+
         self.img_acq = try vkc.dev.createSemaphore(&.{}, null);
         errdefer vkc.dev.destroySemaphore(self.img_acq, null);
 
@@ -249,15 +274,18 @@ const SwapImage = struct {
         return self;
     }
 
-    fn deinit(self: SwapImage, vkc: *const VulkanCtx) void {
+    fn deinit(self: SwapImage, vkc: *const Vulkan) void {
         self.wait(vkc) catch return;
         vkc.dev.destroyFence(self.frame_fence, null);
         vkc.dev.destroySemaphore(self.img_acq, null);
         vkc.dev.destroySemaphore(self.render_finished, null);
+        if (self.framebuffer) |fb| {
+            vkc.dev.destroyFramebuffer(fb, null);
+        }
         vkc.dev.destroyImageView(self.view, null);
     }
 
-    fn wait(self: SwapImage, vkc: *const VulkanCtx) !void {
+    fn wait(self: SwapImage, vkc: *const Vulkan) !void {
         _ = try vkc.dev.waitForFences(1,
             @ptrCast(&self.frame_fence),
             vk.TRUE,

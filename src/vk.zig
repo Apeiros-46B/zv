@@ -3,8 +3,6 @@ const sdl = @import("sdl2");
 const vk = @import("vulkan");
 
 const log = @import("log.zig");
-const Swapchain = @import("swapchain.zig");
-const Pipelines = @import("pipelines.zig");
 const Cstr = [*:0]const u8;
 const Self = @This();
 
@@ -23,13 +21,8 @@ pdev: vk.PhysicalDevice,
 pdev_props: vk.PhysicalDeviceProperties,
 
 dev: vk.DeviceProxy,
+queue_config: QueueConfiguration,
 unique_families: u32,
-graphics_q: Queue,
-compute_q: Queue,
-present_q: Queue,
-
-swapchain: Swapchain,
-pipelines: Pipelines,
 
 const VALIDATION_ENABLED = @import("builtin").mode == .Debug;
 const REQUIRED_VALIDATION_LAYERS = [_]Cstr { "VK_LAYER_KHRONOS_validation" };
@@ -94,24 +87,15 @@ pub fn init(alloc: std.mem.Allocator, window: *sdl.Window) !Self {
     self.surf = try sdl.vulkan.createSurface(window.*, self.inst.handle);
     errdefer self.inst.destroySurfaceKHR(self.surf, null);
 
-    try self.createDevice(try self.pickPhysDevice());
+    const candidate = try self.pickPhysDevice();
+    self.queue_config = candidate.queues;
+    try self.createDevice(candidate);
     errdefer self.dev.destroyDevice(null);
-
-    const extent: vk.Extent2D = .{
-        .height = @intCast(window.getSize().height),
-        .width = @intCast(window.getSize().width),
-    };
-    self.swapchain = try Swapchain.init(&self, extent);
-    errdefer self.swapchain.deinit();
-
-    self.pipelines = try Pipelines.init(&self);
 
     return self;
 }
 
 pub fn deinit(self: Self) void {
-    self.pipelines.deinit();
-    self.swapchain.deinit();
     self.dev.destroyDevice(null);
     self.inst.destroySurfaceKHR(self.surf, null);
     self.inst.destroyDebugUtilsMessengerEXT(self.debug_msgr, null);
@@ -197,21 +181,25 @@ const PdevCandidate = struct {
     queues: QueueConfiguration,
 };
 
-const QueueConfiguration = struct {
+pub const QueueConfiguration = struct {
     graphics_family: u32,
     compute_family: u32,
     present_family: u32,
+    unique: u32 = undefined,
+    
+    pub fn families(self: *const QueueConfiguration) [3]u32 {
+        return [_]u32 {
+            self.graphics_family,
+            self.compute_family,
+            self.present_family,
+        };
+    }
 
-    fn countUnique(self: *const QueueConfiguration) u32 {
+    fn countUnique(self: *QueueConfiguration) u32 {
         var seen = [_]?u32 {null} ** 3;
         var n: u32 = 0;
 
-        const families = [_]u32 {
-            self.graphics_family,
-            self.compute_family,
-            self.present_family
-        };
-        for (families) |family| {
+        for (self.families()) |family| {
             const already_seen = for (seen) |seen_family| {
                 if (seen_family != null and family == seen_family.?) {
                     break true;
@@ -223,6 +211,7 @@ const QueueConfiguration = struct {
                 n += 1;
             }
         }
+        self.unique = n;
         return n;
     }
 };
@@ -385,25 +374,13 @@ fn findQueues(
 }
 // }}}
 
-// {{{ logical device and queues
-pub const Queue = struct {
-    handle: vk.Queue,
-    family: u32,
-
-    fn init(dev: vk.DeviceProxy, family: u32) Queue {
-        return .{
-            .handle = dev.getDeviceQueue(family, 0),
-            .family = family,
-        };
-    }
-};
-
+// {{{ logical device
 fn createDevice(self: *Self, candidate: PdevCandidate) !void {
-    self.unique_families = candidate.queues.countUnique();
+    self.queue_config = candidate.queues;
 
     const priority = [_]f32 {1};
     const dev = try self.inst.createDevice(self.pdev, &.{
-        .queue_create_info_count = self.unique_families,
+        .queue_create_info_count = self.queue_config.countUnique(),
         .p_queue_create_infos = &.{
             .{
                 .queue_family_index = candidate.queues.graphics_family,
@@ -427,12 +404,5 @@ fn createDevice(self: *Self, candidate: PdevCandidate) !void {
 
     self.vkd = vk.DeviceWrapper.load(dev, self.vki.dispatch.vkGetDeviceProcAddr.?);
     self.dev = vk.DeviceProxy.init(dev, &self.vkd);
-
-    // retrieve queues
-    self.graphics_q = Queue.init(self.dev, candidate.queues.graphics_family);
-    self.compute_q = Queue.init(self.dev, candidate.queues.compute_family);
-    self.present_q = Queue.init(self.dev, candidate.queues.present_family);
 }
 // }}}
-
-pub fn presentFrame(_: *Self) !void {}

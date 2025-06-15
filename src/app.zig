@@ -1,11 +1,11 @@
 const std = @import("std");
 const sdl = @import("sdl2");
 
-const VulkanCtx = @import("vk.zig");
+const Renderer = @import("renderer.zig");
 const Self = @This();
 
 window: sdl.Window,
-vk: VulkanCtx,
+renderer: Renderer,
 
 pub fn init(alloc: std.mem.Allocator) !Self {
     var self: Self = undefined;
@@ -27,13 +27,13 @@ pub fn init(alloc: std.mem.Allocator) !Self {
     );
     errdefer self.window.destroy();
 
-    self.vk = try VulkanCtx.init(alloc, &self.window);
+    self.renderer = try Renderer.init(alloc, &self.window);
 
     return self;
 }
 
 pub fn deinit(self: *Self) void {
-    self.vk.deinit();
+    self.renderer.deinit();
     self.window.destroy();
     sdl.quit();
     self.* = undefined;
@@ -48,6 +48,6 @@ pub fn run(self: *Self) !void {
             }
         }
 
-        try self.vk.presentFrame();
+        try self.renderer.draw();
     }
 }

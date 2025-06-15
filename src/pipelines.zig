@@ -1,19 +1,19 @@
 const std = @import("std");
 const vk = @import("vulkan");
 
-const VulkanCtx = @import("vk.zig");
+const Vulkan = @import("vk.zig");
 const Self = @This();
 
 const frag_spv align(@alignOf(u32)) = @embedFile("fragment_shader").*;
 const vert_spv align(@alignOf(u32)) = @embedFile("vertex_shader").*;
 
-vkc: *const VulkanCtx,
+vkc: *const Vulkan,
 
 render_pass: vk.RenderPass,
 pipeline_layout: vk.PipelineLayout,
 graphics_pipeline: vk.Pipeline,
 
-pub fn init(vkc: *const VulkanCtx) !Self {
+pub fn init(vkc: *const Vulkan, extent: vk.Extent2D, fmt: vk.Format) !Self {
     var self: Self = undefined;
 
     self.vkc = vkc;
@@ -25,13 +25,11 @@ pub fn init(vkc: *const VulkanCtx) !Self {
 
     const shader_stages = [_]vk.PipelineShaderStageCreateInfo {
         .{
-            .s_type = .pipeline_shader_stage_create_info,
             .stage = .{ .fragment_bit = true },
             .module = frag_mod,
             .p_name = "main",
         },
         .{
-            .s_type = .pipeline_shader_stage_create_info,
             .stage = .{ .vertex_bit = true },
             .module = vert_mod,
             .p_name = "main",
@@ -40,24 +38,20 @@ pub fn init(vkc: *const VulkanCtx) !Self {
 
     const dyn_states = [_]vk.DynamicState { .viewport, .scissor };
     const dyn_state_info = vk.PipelineDynamicStateCreateInfo {
-        .s_type = .pipeline_dynamic_state_create_info,
         .dynamic_state_count = @intCast(dyn_states.len),
         .p_dynamic_states = @ptrCast(&dyn_states),
     };
     const vert_input_info = vk.PipelineVertexInputStateCreateInfo {
-        .s_type = .pipeline_vertex_input_state_create_info,
         .vertex_binding_description_count = 0,
         .p_vertex_binding_descriptions = null,
         .vertex_attribute_description_count = 0,
         .p_vertex_attribute_descriptions = null,
     };
     const input_assembly_info = vk.PipelineInputAssemblyStateCreateInfo {
-        .s_type = .pipeline_input_assembly_state_create_info,
         .topology = .triangle_list,
         .primitive_restart_enable = vk.FALSE,
     };
 
-    const extent = vkc.swapchain.extent;
     const viewport = vk.Viewport {
         .x = 0.0,
         .y = 0.0,
@@ -71,7 +65,6 @@ pub fn init(vkc: *const VulkanCtx) !Self {
         .extent = extent,
     };
     const viewport_state_info = vk.PipelineViewportStateCreateInfo {
-        .s_type = .pipeline_viewport_state_create_info,
         .viewport_count = 1,
         .p_viewports = (&viewport)[0..1],
         .scissor_count = 1,
@@ -79,7 +72,6 @@ pub fn init(vkc: *const VulkanCtx) !Self {
     };
 
     const rasterizer_info = vk.PipelineRasterizationStateCreateInfo {
-        .s_type = .pipeline_rasterization_state_create_info,
         .depth_bias_enable = vk.FALSE,
         .depth_bias_clamp = 0.0,
         .depth_bias_slope_factor = 0.0,
@@ -92,7 +84,6 @@ pub fn init(vkc: *const VulkanCtx) !Self {
         .line_width = 1.0,
     };
     const multisample_info = vk.PipelineMultisampleStateCreateInfo {
-        .s_type = .pipeline_multisample_state_create_info,
         .sample_shading_enable = vk.FALSE,
         .rasterization_samples = .{ .@"1_bit" = true },
         .min_sample_shading = 1.0,
@@ -116,7 +107,6 @@ pub fn init(vkc: *const VulkanCtx) !Self {
         .alpha_blend_op = .add,
     };
     const color_blend_info = vk.PipelineColorBlendStateCreateInfo {
-        .s_type = .pipeline_color_blend_state_create_info,
         .logic_op_enable = vk.FALSE,
         .logic_op = .copy,
         .attachment_count = 1,
@@ -125,7 +115,6 @@ pub fn init(vkc: *const VulkanCtx) !Self {
     };
 
     self.pipeline_layout = try vkc.dev.createPipelineLayout(&.{
-        .s_type = .pipeline_layout_create_info,
         .set_layout_count = 0,
         .p_set_layouts = null,
         .push_constant_range_count = 0,
@@ -134,7 +123,7 @@ pub fn init(vkc: *const VulkanCtx) !Self {
     errdefer vkc.dev.destroyPipelineLayout(self.pipeline_layout, null);
 
     const color_attachment = vk.AttachmentDescription {
-        .format = vkc.swapchain.fmt.format,
+        .format = fmt,
         .samples = .{ .@"1_bit" = true },
         .load_op = .clear,
         .store_op = .store,
@@ -155,7 +144,6 @@ pub fn init(vkc: *const VulkanCtx) !Self {
     };
 
     self.render_pass = try vkc.dev.createRenderPass(&.{
-        .s_type = .render_pass_create_info,
         .attachment_count = 1,
         .p_attachments = (&color_attachment)[0..1],
         .subpass_count = 1,
@@ -164,7 +152,6 @@ pub fn init(vkc: *const VulkanCtx) !Self {
     errdefer vkc.dev.destroyRenderPass(self.render_pass, null);
 
     const pipeline_info = vk.GraphicsPipelineCreateInfo {
-        .s_type = .graphics_pipeline_create_info,
         .stage_count = 2,
         .p_stages = &shader_stages,
         .p_vertex_input_state = &vert_input_info,
@@ -197,9 +184,8 @@ pub fn deinit(self: Self) void {
     self.vkc.dev.destroyRenderPass(self.render_pass, null);
 }
 
-fn createModule(vkc: *const VulkanCtx, spv: []const u32) !vk.ShaderModule {
+fn createModule(vkc: *const Vulkan, spv: []const u32) !vk.ShaderModule {
     return try vkc.dev.createShaderModule(&.{
-        .s_type = .shader_module_create_info,
         .code_size = spv.len * @sizeOf(u32),
         .p_code = spv.ptr,
     }, null);
