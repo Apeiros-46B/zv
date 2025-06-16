@@ -54,7 +54,8 @@ pub fn init(alloc: std.mem.Allocator, window: *sdl.Window) !Self {
 }
 
 pub fn deinit(self: Self) void {
-    @constCast(&self).deinitFrames();
+    self.vkc.dev.deviceWaitIdle() catch {};
+    self.deinitFrames();
     self.pipelines.deinit();
     self.swapchain.deinit();
     self.vkc.deinit();
@@ -73,14 +74,14 @@ fn initFrames(self: *Self) !void {
     }
 }
 
-fn deinitFrames(self: *Self) void {
+fn deinitFrames(self: *const Self) void {
     for (self.frames) |frame| {
         frame.deinit(&self.vkc);
     }
 }
 
 fn getFrame(self: *Self) *FrameData {
-    return self.frames[self.cur_frame % FRAMES_IN_FLIGHT];
+    return &self.frames[self.cur_frame % FRAMES_IN_FLIGHT];
 }
 
 const FrameData = struct {
@@ -96,13 +97,13 @@ const FrameData = struct {
         self.cmd_pool = try vkc.dev.createCommandPool(cmd_pool_info, null);
         errdefer vkc.dev.destroyCommandPool(self.cmd_pool, null);
 
-        var cmd_buf = undefined;
+        var cmd_buf: vk.CommandBuffer = undefined;
         try vkc.dev.allocateCommandBuffers(&.{
             .command_pool = self.cmd_pool,
             .command_buffer_count = 1,
             .level = .primary,
         }, (&cmd_buf)[0..1]);
-        self.cmd_buf = vk.CommandBufferProxy.init(cmd_buf, vkc.vkd);
+        self.cmd_buf = vk.CommandBufferProxy.init(cmd_buf, &vkc.vkd);
 
         return self;
     }
@@ -131,9 +132,10 @@ pub fn draw(self: *Self) !void {
     try self.swapchain.acqNext();
 
     const cmd = self.getFrame().cmd_buf;
-    cmd.resetCommandBuffer(.{});
-    cmd.beginCommandBuffer(&.{
+    try cmd.resetCommandBuffer(.{});
+    try cmd.beginCommandBuffer(&.{
         .p_inheritance_info = null,
         .flags = .{ .one_time_submit_bit = true },
     });
+    try cmd.endCommandBuffer();
 }

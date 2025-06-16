@@ -151,6 +151,7 @@ pub fn acqNext(self: *Self) !void {
         &self.imgs[res.image_index].img_acq,
         &self.next_img_acq
     );
+    // self.img_idx = (self.img_idx + 1) % @as(u32, @intCast(self.imgs.len));
 }
 
 pub fn waitAll(self: Self) !void {
