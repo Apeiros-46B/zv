@@ -7,8 +7,6 @@ const Swapchain = @import("swapchain.zig");
 const Pipelines = @import("pipelines.zig");
 const Self = @This();
 
-const FRAMES_IN_FLIGHT = 2;
-
 alloc: std.mem.Allocator,
 
 vkc: Vulkan,
@@ -18,9 +16,6 @@ pipelines: Pipelines,
 graphics_queue: Queue,
 compute_queue: Queue,
 present_queue: Queue,
-
-frames: [FRAMES_IN_FLIGHT]FrameData,
-cur_frame: usize,
 
 pub fn init(alloc: std.mem.Allocator, window: *sdl.Window) !Self {
     var self: Self = undefined;
@@ -47,71 +42,15 @@ pub fn init(alloc: std.mem.Allocator, window: *sdl.Window) !Self {
 
     try self.swapchain.createFramebuffers(self.pipelines.render_pass);
 
-    try self.initFrames();
-    errdefer self.deinitFrames();
-
     return self;
 }
 
 pub fn deinit(self: Self) void {
     self.vkc.dev.deviceWaitIdle() catch {};
-    self.deinitFrames();
     self.pipelines.deinit();
     self.swapchain.deinit();
     self.vkc.deinit();
 }
-
-fn initFrames(self: *Self) !void {
-    const cmd_pool_info = vk.CommandPoolCreateInfo {
-        .flags = .{ .reset_command_buffer_bit = true },
-        .queue_family_index = self.vkc.queue_config.graphics_family,
-    };
-    var i: usize = 0;
-    errdefer for (self.frames[0..i]) |frame| frame.deinit(&self.vkc);
-    for (0..FRAMES_IN_FLIGHT) |_| {
-        self.frames[i] = try FrameData.init(&self.vkc, &cmd_pool_info);
-        i += 1;
-    }
-}
-
-fn deinitFrames(self: *const Self) void {
-    for (self.frames) |frame| {
-        frame.deinit(&self.vkc);
-    }
-}
-
-fn getFrame(self: *Self) *FrameData {
-    return &self.frames[self.cur_frame % FRAMES_IN_FLIGHT];
-}
-
-const FrameData = struct {
-    cmd_pool: vk.CommandPool,
-    cmd_buf: vk.CommandBufferProxy,
-
-    fn init(
-        vkc: *const Vulkan,
-        cmd_pool_info: *const vk.CommandPoolCreateInfo
-    ) !FrameData {
-        var self: FrameData = undefined;
-
-        self.cmd_pool = try vkc.dev.createCommandPool(cmd_pool_info, null);
-        errdefer vkc.dev.destroyCommandPool(self.cmd_pool, null);
-
-        var cmd_buf: vk.CommandBuffer = undefined;
-        try vkc.dev.allocateCommandBuffers(&.{
-            .command_pool = self.cmd_pool,
-            .command_buffer_count = 1,
-            .level = .primary,
-        }, (&cmd_buf)[0..1]);
-        self.cmd_buf = vk.CommandBufferProxy.init(cmd_buf, &vkc.vkd);
-
-        return self;
-    }
-
-    fn deinit(self: FrameData, vkc: *const Vulkan) void {
-        vkc.dev.destroyCommandPool(self.cmd_pool, null);
-    }
-};
 
 const Queue = struct {
     handle: vk.Queue,
@@ -126,16 +65,52 @@ const Queue = struct {
 };
 
 pub fn draw(self: *Self) !void {
-    const img = self.swapchain.getImg();
-    _ = try self.vkc.dev.waitForFences(1, (&img.frame_fence)[0..1], vk.TRUE, 1_000_000_000);
-    try self.vkc.dev.resetFences(1, (&img.frame_fence)[0..1]);
-    try self.swapchain.acqNext();
-
-    const cmd = self.getFrame().cmd_buf;
-    try cmd.resetCommandBuffer(.{});
-    try cmd.beginCommandBuffer(&.{
-        .p_inheritance_info = null,
+    try self.swapchain.getCurFrame().wait();
+    try self.swapchain.getCurFrame().resetFence();
+    const img_idx = try self.swapchain.acqNext();
+    
+    const frame = self.swapchain.getCurFrame();
+    
+    try frame.cmd_buf.resetCommandBuffer(.{});
+    try frame.cmd_buf.beginCommandBuffer(&.{
         .flags = .{ .one_time_submit_bit = true },
     });
-    try cmd.endCommandBuffer();
+    
+    frame.cmd_buf.beginRenderPass(&.{
+        .render_pass = self.pipelines.render_pass,
+        .framebuffer = self.swapchain.imgs[img_idx].framebuffer.?,
+        .render_area = .{
+            .offset = .{ .x = 0, .y = 0 },
+            .extent = self.swapchain.extent,
+        },
+        .clear_value_count = 1,
+        .p_clear_values = &[_]vk.ClearValue{
+            .{ .color = .{ .float_32 = .{ 1.0, 1.0, 1.0, 1.0 } } },
+        },
+    }, .@"inline");
+    frame.cmd_buf.endRenderPass();
+    
+    try frame.cmd_buf.endCommandBuffer();
+    
+    const submit_info = vk.SubmitInfo {
+        .wait_semaphore_count = 1,
+        .p_wait_semaphores = (&frame.img_acq)[0..1],
+        .p_wait_dst_stage_mask = (&vk.PipelineStageFlags{ .color_attachment_output_bit = true })[0..1],
+        .command_buffer_count = 1,
+        .p_command_buffers = (&frame.cmd_buf.handle)[0..1],
+        .signal_semaphore_count = 1,
+        .p_signal_semaphores = (&frame.render_done)[0..1],
+    };
+    try self.vkc.dev.queueSubmit(self.graphics_queue.handle, 1, (&submit_info)[0..1], frame.fence);
+
+    const present_info = vk.PresentInfoKHR{
+        .wait_semaphore_count = 1,
+        .p_wait_semaphores = (&frame.render_done)[0..1],
+        .swapchain_count = 1,
+        .p_swapchains = (&self.swapchain.handle)[0..1],
+        .p_image_indices = (&img_idx)[0..1],
+    };
+    _ = try self.vkc.dev.queuePresentKHR(self.present_queue.handle, &present_info);
+    
+    self.swapchain.nextFrame();
 }

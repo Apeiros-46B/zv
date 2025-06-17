@@ -4,6 +4,8 @@ const vk = @import("vulkan");
 const Vulkan = @import("vk.zig");
 const Self = @This();
 
+const FRAMES_IN_FLIGHT = 2;
+
 pub const PresentState = enum {
     optimal,
     suboptimal,
@@ -19,7 +21,8 @@ handle: vk.SwapchainKHR,
 
 imgs: []SwapImage,
 img_idx: u32,
-next_img_acq: vk.Semaphore,
+cur_frame: usize,
+frames: [FRAMES_IN_FLIGHT]Frame,
 
 pub fn init(vkc: *const Vulkan, extent: vk.Extent2D) !Self {
     return try initRecycle(vkc, extent, .null_handle);
@@ -33,15 +36,8 @@ pub fn createFramebuffers(self: *Self, render_pass: vk.RenderPass) !void {
         img.framebuffer.?,
         null
     );
-    for (self.imgs) |img| {
-        self.imgs[i].framebuffer = try self.vkc.dev.createFramebuffer(&.{
-            .render_pass = render_pass,
-            .attachment_count = 1,
-            .p_attachments = (&img.view)[0..1],
-            .width = self.extent.width,
-            .height = self.extent.height,
-            .layers = 1,
-        }, null);
+    for (self.imgs) |_| {
+        try self.imgs[i].createFramebuffer(self.extent, render_pass);
         i += 1;
     }
 }
@@ -103,14 +99,12 @@ pub fn initRecycle(vkc: *const Vulkan, extent: vk.Extent2D, prev: vk.SwapchainKH
     }
 
     self.img_idx = 0;
-
     try self.initImgs();
     errdefer self.deinitImgs();
 
-    self.next_img_acq = try vkc.dev.createSemaphore(&.{}, null);
-    errdefer vkc.dev.destroySemaphore(self.next_img_acq, null);
-
-    try self.acqNext();
+    self.cur_frame = 0;
+    try self.initFrames();
+    errdefer self.deinitFrames();
 
     return self;
 }
@@ -119,43 +113,29 @@ pub fn recreate(self: *Self, new_extent: vk.Extent2D) !void {
     const vkc = self.vkc;
     const alloc = self.alloc;
     const prev = self.handle;
-    self.deinitPartial();
+    self.deinitImgs();
+    self.deinitFrames();
     self.* = try initRecycle(vkc, alloc, new_extent, prev);
 }
 
 pub fn deinit(self: Self) void {
-    self.deinitPartial();
+    if (self.handle == .null_handle) return;
+    self.deinitImgs();
+    self.deinitFrames();
     self.vkc.dev.destroySwapchainKHR(self.handle, null);
 }
 
-fn deinitPartial(self: Self) void {
-    self.deinitImgs();
-    self.vkc.dev.destroySemaphore(self.next_img_acq, null);
-}
-
-pub fn getImg(self: *Self) SwapImage {
-    return self.imgs[self.img_idx];
-}
-
-pub fn acqNext(self: *Self) !void {
+pub fn acqNext(self: *Self) !u32 {
     const res = try self.vkc.dev.acquireNextImageKHR(
         self.handle,
-        std.math.maxInt(u64),
-        self.next_img_acq,
+        1_000_000_000,
+        self.getCurFrame().img_acq,
         .null_handle
     );
     if (res.result != .success) {
         return error.ImageAcquireFailed;
     }
-    std.mem.swap(vk.Semaphore,
-        &self.imgs[res.image_index].img_acq,
-        &self.next_img_acq
-    );
-    // self.img_idx = (self.img_idx + 1) % @as(u32, @intCast(self.imgs.len));
-}
-
-pub fn waitAll(self: Self) !void {
-    for (self.imgs) |si| si.wait(self.vkc) catch {};
+    return res.image_index;
 }
 
 // {{{ settings (fmt, mode, extent)
@@ -226,16 +206,16 @@ fn findActualExtent(
 
 // {{{ images
 const SwapImage = struct {
+    vkc: *const Vulkan,
+
     img: vk.Image,
     view: vk.ImageView,
     framebuffer: ?vk.Framebuffer,
 
-    img_acq: vk.Semaphore,
-    render_finished: vk.Semaphore,
-    frame_fence: vk.Fence,
-
     fn init(vkc: *const Vulkan, fmt: vk.Format, img: vk.Image) !SwapImage {
         var self: SwapImage = undefined;
+
+        self.vkc = vkc;
 
         self.img = img;
         self.view = try vkc.dev.createImageView(&.{
@@ -261,37 +241,29 @@ const SwapImage = struct {
         // the framebuffer is overwritten later when we have created the render pass
         self.framebuffer = null;
 
-        self.img_acq = try vkc.dev.createSemaphore(&.{}, null);
-        errdefer vkc.dev.destroySemaphore(self.img_acq, null);
-
-        self.render_finished = try vkc.dev.createSemaphore(&.{}, null);
-        errdefer vkc.dev.destroySemaphore(self.render_finished, null);
-
-        self.frame_fence = try vkc.dev.createFence(&.{
-            .flags = .{ .signaled_bit = true },
-        }, null);
-        errdefer vkc.dev.destroyFence(self.frame_fence, null);
-
         return self;
     }
 
-    fn deinit(self: SwapImage, vkc: *const Vulkan) void {
-        self.wait(vkc) catch return;
-        vkc.dev.destroyFence(self.frame_fence, null);
-        vkc.dev.destroySemaphore(self.img_acq, null);
-        vkc.dev.destroySemaphore(self.render_finished, null);
-        if (self.framebuffer) |fb| {
-            vkc.dev.destroyFramebuffer(fb, null);
-        }
-        vkc.dev.destroyImageView(self.view, null);
+    fn createFramebuffer(
+        self: *SwapImage,
+        extent: vk.Extent2D,
+        render_pass: vk.RenderPass
+    ) !void {
+        self.framebuffer = try self.vkc.dev.createFramebuffer(&.{
+            .render_pass = render_pass,
+            .attachment_count = 1,
+            .p_attachments = (&self.view)[0..1],
+            .width = extent.width,
+            .height = extent.height,
+            .layers = 1,
+        }, null);
     }
 
-    fn wait(self: SwapImage, vkc: *const Vulkan) !void {
-        _ = try vkc.dev.waitForFences(1,
-            @ptrCast(&self.frame_fence),
-            vk.TRUE,
-            std.math.maxInt(u64)
-        );
+    fn deinit(self: SwapImage) void {
+        if (self.framebuffer) |fb| {
+            self.vkc.dev.destroyFramebuffer(fb, null);
+        }
+        self.vkc.dev.destroyImageView(self.view, null);
     }
 };
 
@@ -307,7 +279,7 @@ fn initImgs(self: *Self) !void {
 
     var i: usize = 0;
     // when error occurs, only clean up images up to image i
-    errdefer for (self.imgs[0..i]) |si| si.deinit(self.vkc);
+    errdefer for (self.imgs[0..i]) |img| img.deinit();
 
     for (imgs) |img| {
         self.imgs[i] = try SwapImage.init(self.vkc, self.fmt.format, img);
@@ -316,7 +288,93 @@ fn initImgs(self: *Self) !void {
 }
 
 fn deinitImgs(self: Self) void {
-    for (self.imgs) |img| img.deinit(self.vkc);
+    for (self.imgs) |img| img.deinit();
     self.alloc.free(self.imgs);
+}
+// }}}
+
+// {{{ frames
+const Frame = struct {
+    vkc: *const Vulkan,
+
+    cmd_pool: vk.CommandPool,
+    cmd_buf: vk.CommandBufferProxy,
+
+    img_acq: vk.Semaphore,
+    render_done: vk.Semaphore,
+
+    fence: vk.Fence,
+
+    fn init(vkc: *const Vulkan) !Frame {
+        var self: Frame = undefined;
+
+        self.vkc = vkc;
+
+        self.cmd_pool = try vkc.dev.createCommandPool(&.{
+            .flags = .{ .reset_command_buffer_bit = true },
+            .queue_family_index = self.vkc.queue_config.graphics_family,
+        }, null);
+        errdefer vkc.dev.destroyCommandPool(self.cmd_pool, null);
+
+        var cmd_buf: vk.CommandBuffer = undefined;
+        try vkc.dev.allocateCommandBuffers(&.{
+            .command_pool = self.cmd_pool,
+            .command_buffer_count = 1,
+            .level = .primary,
+        }, (&cmd_buf)[0..1]);
+        self.cmd_buf = vk.CommandBufferProxy.init(cmd_buf, &vkc.vkd);
+
+        self.img_acq = try vkc.dev.createSemaphore(&.{}, null);
+        errdefer vkc.dev.destroySemaphore(self.img_acq, null);
+
+        self.render_done = try vkc.dev.createSemaphore(&.{}, null);
+        errdefer vkc.dev.destroySemaphore(self.render_done, null);
+
+        self.fence = try vkc.dev.createFence(&.{
+            .flags = .{ .signaled_bit = true },
+        }, null);
+
+        return self;
+    }
+
+    fn deinit(self: Frame) void {
+        self.wait() catch {};
+        self.vkc.dev.destroyFence(self.fence, null);
+        self.vkc.dev.destroySemaphore(self.render_done, null);
+        self.vkc.dev.destroySemaphore(self.img_acq, null);
+        self.vkc.dev.destroyCommandPool(self.cmd_pool, null);
+    }
+
+    pub fn wait(self: *const Frame) !void {
+        _ = try self.vkc.dev.waitForFences(1, @ptrCast(&self.fence), vk.TRUE, 1_000_000_000);
+    }
+
+    pub fn resetFence(self: *const Frame) !void {
+        try self.vkc.dev.resetFences(1, (&self.fence)[0..1]);
+    }
+};
+
+fn initFrames(self: *Self) !void {
+    var i: usize = 0;
+    errdefer for (self.frames[0..i]) |frame| frame.deinit();
+
+    for (0..FRAMES_IN_FLIGHT) |_| {
+        self.frames[i] = try Frame.init(self.vkc);
+        i += 1;
+    }
+}
+
+fn deinitFrames(self: *const Self) void {
+    for (self.frames) |frame| {
+        frame.deinit();
+    }
+}
+
+pub fn getCurFrame(self: *Self) *Frame {
+    return &self.frames[self.cur_frame % FRAMES_IN_FLIGHT];
+}
+
+pub fn nextFrame(self: *Self) void {
+    self.cur_frame +%= 1;
 }
 // }}}
