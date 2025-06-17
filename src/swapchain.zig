@@ -116,11 +116,10 @@ pub fn initRecycle(vkc: *const Vulkan, extent: vk.Extent2D, prev: vk.SwapchainKH
 
 pub fn recreate(self: *Self, new_extent: vk.Extent2D) !void {
     const vkc = self.vkc;
-    const alloc = self.alloc;
     const prev = self.handle;
     self.deinitImgs();
     self.deinitFrames();
-    self.* = try initRecycle(vkc, alloc, new_extent, prev);
+    self.* = try initRecycle(vkc, new_extent, prev);
 }
 
 pub fn deinit(self: Self) void {
@@ -133,7 +132,7 @@ pub fn deinit(self: Self) void {
 pub fn acqNext(self: *Self) !AcquireResult {
     const res = try self.vkc.dev.acquireNextImageKHR(
         self.handle,
-        1_000_000_000,
+        std.math.maxInt(u64),
         self.getCurFrame().img_acq,
         .null_handle
     );
@@ -356,6 +355,7 @@ const Frame = struct {
     }
 
     pub fn wait(self: *const Frame) !void {
+        // TODO: the synchronization logic here is broken. when this timeout is set to std.math.maxInt(u64), the entire application freezes.
         _ = try self.vkc.dev.waitForFences(1, @ptrCast(&self.fence), vk.TRUE, 1_000_000_000);
     }
 

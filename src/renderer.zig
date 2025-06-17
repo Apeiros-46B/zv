@@ -9,6 +9,8 @@ const Self = @This();
 
 alloc: std.mem.Allocator,
 
+window: *sdl.Window,
+
 vkc: Vulkan,
 swapchain: Swapchain,
 pipelines: Pipelines,
@@ -19,6 +21,8 @@ present_queue: Queue,
 
 pub fn init(alloc: std.mem.Allocator, window: *sdl.Window) !Self {
     var self: Self = undefined;
+
+    self.window = window;
 
     self.vkc = try Vulkan.init(alloc, window);
     errdefer self.vkc.deinit();
@@ -67,7 +71,18 @@ const Queue = struct {
 pub fn draw(self: *Self) !void {
     try self.swapchain.getCurFrame().wait();
     try self.swapchain.getCurFrame().resetFence();
-    const acq_res = try self.swapchain.acqNext();
+
+    const acq_res = self.swapchain.acqNext() catch |err| switch (err) {
+        error.OutOfDateKHR => {
+            try self.resizeSwapchain();
+            return;
+        },
+        else => return err,
+    };
+    if (acq_res.state == .suboptimal) {
+        try self.resizeSwapchain();
+        return;
+    }
 
     const img_idx = acq_res.img_idx;
     
@@ -88,7 +103,7 @@ pub fn draw(self: *Self) !void {
         },
         .clear_value_count = 1,
         .p_clear_values = &[_]vk.ClearValue{
-            .{ .color = .{ .float_32 = .{ 1.0, 1.0, 1.0, 1.0 } } },
+            .{ .color = .{ .float_32 = .{ 0.5, 0.5, 0.5, 1.0 } } },
         },
     }, .@"inline");
     frame.cmd_buf.endRenderPass();
@@ -98,7 +113,7 @@ pub fn draw(self: *Self) !void {
     const submit_info = vk.SubmitInfo {
         .wait_semaphore_count = 1,
         .p_wait_semaphores = (&frame.img_acq)[0..1],
-        .p_wait_dst_stage_mask = (&vk.PipelineStageFlags{ .color_attachment_output_bit = true })[0..1],
+        .p_wait_dst_stage_mask = (&vk.PipelineStageFlags { .color_attachment_output_bit = true })[0..1],
         .command_buffer_count = 1,
         .p_command_buffers = (&frame.cmd_buf.handle)[0..1],
         .signal_semaphore_count = 1,
@@ -113,7 +128,28 @@ pub fn draw(self: *Self) !void {
         .p_swapchains = (&self.swapchain.handle)[0..1],
         .p_image_indices = (&img_idx)[0..1],
     };
-    _ = try self.vkc.dev.queuePresentKHR(self.present_queue.handle, &present_info);
+    _ = self.vkc.dev.queuePresentKHR(self.present_queue.handle, &present_info) catch |err| {
+        switch (err) {
+            error.OutOfDateKHR => {
+                try self.resizeSwapchain();
+                return;
+            },
+            else => return err,
+        }
+    };
     
     self.swapchain.nextFrame();
+}
+
+pub fn resizeSwapchain(self: *Self) !void {
+    try self.vkc.dev.deviceWaitIdle();
+
+    const size = self.window.getSize();
+    const new_extent = vk.Extent2D {
+        .width = @intCast(size.width),
+        .height = @intCast(size.height),
+    };
+
+    try self.swapchain.recreate(new_extent);
+    try self.swapchain.createFramebuffers(self.pipelines.render_pass);
 }
