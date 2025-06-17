@@ -67,9 +67,12 @@ const Queue = struct {
 pub fn draw(self: *Self) !void {
     try self.swapchain.getCurFrame().wait();
     try self.swapchain.getCurFrame().resetFence();
-    const img_idx = try self.swapchain.acqNext();
+    const acq_res = try self.swapchain.acqNext();
+
+    const img_idx = acq_res.img_idx;
     
     const frame = self.swapchain.getCurFrame();
+    const img = self.swapchain.imgs[img_idx];
     
     try frame.cmd_buf.resetCommandBuffer(.{});
     try frame.cmd_buf.beginCommandBuffer(&.{
@@ -78,7 +81,7 @@ pub fn draw(self: *Self) !void {
     
     frame.cmd_buf.beginRenderPass(&.{
         .render_pass = self.pipelines.render_pass,
-        .framebuffer = self.swapchain.imgs[img_idx].framebuffer.?,
+        .framebuffer = img.framebuffer.?,
         .render_area = .{
             .offset = .{ .x = 0, .y = 0 },
             .extent = self.swapchain.extent,
@@ -99,13 +102,13 @@ pub fn draw(self: *Self) !void {
         .command_buffer_count = 1,
         .p_command_buffers = (&frame.cmd_buf.handle)[0..1],
         .signal_semaphore_count = 1,
-        .p_signal_semaphores = (&frame.render_done)[0..1],
+        .p_signal_semaphores = (&img.render_done)[0..1],
     };
     try self.vkc.dev.queueSubmit(self.graphics_queue.handle, 1, (&submit_info)[0..1], frame.fence);
 
     const present_info = vk.PresentInfoKHR{
         .wait_semaphore_count = 1,
-        .p_wait_semaphores = (&frame.render_done)[0..1],
+        .p_wait_semaphores = (&img.render_done)[0..1],
         .swapchain_count = 1,
         .p_swapchains = (&self.swapchain.handle)[0..1],
         .p_image_indices = (&img_idx)[0..1],

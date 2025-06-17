@@ -11,6 +11,11 @@ pub const PresentState = enum {
     suboptimal,
 };
 
+pub const AcquireResult = struct {
+    state: PresentState,
+    img_idx: u32,
+};
+
 vkc: *const Vulkan,
 alloc: std.mem.Allocator,
 
@@ -125,17 +130,24 @@ pub fn deinit(self: Self) void {
     self.vkc.dev.destroySwapchainKHR(self.handle, null);
 }
 
-pub fn acqNext(self: *Self) !u32 {
+pub fn acqNext(self: *Self) !AcquireResult {
     const res = try self.vkc.dev.acquireNextImageKHR(
         self.handle,
         1_000_000_000,
         self.getCurFrame().img_acq,
         .null_handle
     );
-    if (res.result != .success) {
+    if (res.result == .not_ready or res.result == .timeout) {
         return error.ImageAcquireFailed;
     }
-    return res.image_index;
+    return .{
+        .state = switch (res.result) {
+            .success => .optimal,
+            .suboptimal_khr => .suboptimal,
+            else => unreachable,
+        },
+        .img_idx = res.image_index,
+    };
 }
 
 // {{{ settings (fmt, mode, extent)
@@ -211,6 +223,7 @@ const SwapImage = struct {
     img: vk.Image,
     view: vk.ImageView,
     framebuffer: ?vk.Framebuffer,
+    render_done: vk.Semaphore,
 
     fn init(vkc: *const Vulkan, fmt: vk.Format, img: vk.Image) !SwapImage {
         var self: SwapImage = undefined;
@@ -241,6 +254,8 @@ const SwapImage = struct {
         // the framebuffer is overwritten later when we have created the render pass
         self.framebuffer = null;
 
+        self.render_done = try vkc.dev.createSemaphore(&.{}, null);
+
         return self;
     }
 
@@ -260,6 +275,7 @@ const SwapImage = struct {
     }
 
     fn deinit(self: SwapImage) void {
+        self.vkc.dev.destroySemaphore(self.render_done, null);
         if (self.framebuffer) |fb| {
             self.vkc.dev.destroyFramebuffer(fb, null);
         }
@@ -301,8 +317,6 @@ const Frame = struct {
     cmd_buf: vk.CommandBufferProxy,
 
     img_acq: vk.Semaphore,
-    render_done: vk.Semaphore,
-
     fence: vk.Fence,
 
     fn init(vkc: *const Vulkan) !Frame {
@@ -327,9 +341,6 @@ const Frame = struct {
         self.img_acq = try vkc.dev.createSemaphore(&.{}, null);
         errdefer vkc.dev.destroySemaphore(self.img_acq, null);
 
-        self.render_done = try vkc.dev.createSemaphore(&.{}, null);
-        errdefer vkc.dev.destroySemaphore(self.render_done, null);
-
         self.fence = try vkc.dev.createFence(&.{
             .flags = .{ .signaled_bit = true },
         }, null);
@@ -340,7 +351,6 @@ const Frame = struct {
     fn deinit(self: Frame) void {
         self.wait() catch {};
         self.vkc.dev.destroyFence(self.fence, null);
-        self.vkc.dev.destroySemaphore(self.render_done, null);
         self.vkc.dev.destroySemaphore(self.img_acq, null);
         self.vkc.dev.destroyCommandPool(self.cmd_pool, null);
     }

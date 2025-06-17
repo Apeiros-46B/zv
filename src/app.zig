@@ -47,7 +47,6 @@ pub fn run(self: *Self) !void {
                 else => {},
             }
         }
-
         try self.renderer.draw();
     }
 }
