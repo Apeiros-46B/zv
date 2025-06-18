@@ -356,7 +356,7 @@ const Frame = struct {
 
     pub fn wait(self: *const Frame) !void {
         // TODO: the synchronization logic here is broken. when this timeout is set to std.math.maxInt(u64), the entire application freezes.
-        _ = try self.vkc.dev.waitForFences(1, @ptrCast(&self.fence), vk.TRUE, 1_000_000_000);
+        _ = try self.vkc.dev.waitForFences(1, (&self.fence)[0..1], vk.TRUE, std.math.maxInt(u64));
     }
 
     pub fn resetFence(self: *const Frame) !void {

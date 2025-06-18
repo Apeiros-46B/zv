@@ -2,6 +2,7 @@ const std = @import("std");
 const sdl = @import("sdl2");
 const vk = @import("vulkan");
 
+const log = @import("log.zig");
 const Vulkan = @import("vk.zig");
 const Swapchain = @import("swapchain.zig");
 const Pipelines = @import("pipelines.zig");
@@ -69,11 +70,13 @@ const Queue = struct {
 };
 
 pub fn draw(self: *Self) !void {
+    std.debug.print("frame #{d}\n", .{self.swapchain.cur_frame});
+
     try self.swapchain.getCurFrame().wait();
     try self.swapchain.getCurFrame().resetFence();
 
     const acq_res = self.swapchain.acqNext() catch |err| switch (err) {
-        error.OutOfDateKHR => {
+        error.OutOfDateKHR, error.ImageAcquireFailed => {
             try self.resizeSwapchain();
             return;
         },
@@ -119,7 +122,10 @@ pub fn draw(self: *Self) !void {
         .signal_semaphore_count = 1,
         .p_signal_semaphores = (&img.render_done)[0..1],
     };
-    try self.vkc.dev.queueSubmit(self.graphics_queue.handle, 1, (&submit_info)[0..1], frame.fence);
+    self.vkc.dev.queueSubmit(self.graphics_queue.handle, 1, (&submit_info)[0..1], frame.fence) catch |err| {
+        log.print(.err, null, "Queue submit failed: {}", .{err});
+        return err;
+    };
 
     const present_info = vk.PresentInfoKHR{
         .wait_semaphore_count = 1,
@@ -134,7 +140,10 @@ pub fn draw(self: *Self) !void {
                 try self.resizeSwapchain();
                 return;
             },
-            else => return err,
+            else => {
+                log.print(.err, null, "Queue present failed: {}", .{err});
+                return err;
+            },
         }
     };
     

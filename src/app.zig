@@ -40,23 +40,12 @@ pub fn deinit(self: *Self) void {
 }
 
 pub fn run(self: *Self) !void {
-    var resize_requested = false;
-
     main: while (true) {
         while (sdl.pollEvent()) |ev| {
             switch (ev) {
                 .quit => break :main,
-                .window => |window_ev| {
-                    if (window_ev.type == .resized) {
-                        resize_requested = true;
-                    }
-                },
                 else => {},
             }
-        }
-        if (resize_requested) {
-           try self.renderer.resizeSwapchain();
-           resize_requested = false;
         }
         try self.renderer.draw();
     }
