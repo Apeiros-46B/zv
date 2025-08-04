@@ -1,164 +1,116 @@
 const std = @import("std");
 const sdl = @import("sdl2");
-const vk = @import("vulkan");
+const gl = @import("zgl");
 
 const log = @import("log.zig");
-const Vulkan = @import("vk.zig");
-const Swapchain = @import("swapchain.zig");
-const Pipelines = @import("pipelines.zig");
+
 const Self = @This();
 
+const Cstr = [*:0]const u8;
+
 alloc: std.mem.Allocator,
+window: sdl.Window,
+gl_ctx: sdl.gl.Context,
 
-window: *sdl.Window,
+vao: gl.VertexArray,
+vbo: gl.Buffer,
 
-vkc: Vulkan,
-swapchain: Swapchain,
-pipelines: Pipelines,
+prg: gl.Program,
 
-graphics_queue: Queue,
-compute_queue: Queue,
-present_queue: Queue,
-
-pub fn init(alloc: std.mem.Allocator, window: *sdl.Window) !Self {
+pub fn init(alloc: std.mem.Allocator, window: sdl.Window) !Self {
     var self: Self = undefined;
 
+    self.alloc = alloc;
     self.window = window;
 
-    self.vkc = try Vulkan.init(alloc, window);
-    errdefer self.vkc.deinit();
+    self.gl_ctx = try sdl.gl.createContext(window);
+    errdefer self.gl_ctx.delete();
+    try self.gl_ctx.makeCurrent(window);
+    log.print(.debug, "GL", "context loaded", .{});
 
-    self.graphics_queue = Queue.init(&self.vkc, self.vkc.queue_config.graphics_family);
-    self.compute_queue = Queue.init(&self.vkc, self.vkc.queue_config.compute_family);
-    self.present_queue = Queue.init(&self.vkc, self.vkc.queue_config.present_family);
+    try gl.loadExtensions(void, getProcAddressWrapper);
+    log.print(.debug, "GL", "extensions loaded", .{});
 
-    self.swapchain = try Swapchain.init(&self.vkc, .{
-        .height = @intCast(window.getSize().height),
-        .width = @intCast(window.getSize().width),
-    });
-    errdefer self.swapchain.deinit();
+    self.resize();
 
-    self.pipelines = try Pipelines.init(
-        &self.vkc,
-        self.swapchain.extent,
-        self.swapchain.fmt.format,
-    );
-    errdefer self.pipelines.deinit();
+    self.vao = gl.VertexArray.create();
+    errdefer self.vao.delete();
 
-    try self.swapchain.createFramebuffers(self.pipelines.render_pass);
+    const verts = [_]f32 {
+        -0.5, -0.5, 0.0,
+         0.5, -0.5, 0.0,
+         0.0,  0.5, 0.0,
+    };
+    self.vbo = gl.Buffer.create();
+    errdefer self.vbo.delete();
+
+    self.vao.bind();
+    self.vbo.bind(.array_buffer);
+    self.vbo.data(f32, &verts, .static_draw);
+    gl.vertexAttribPointer(0, 3, .float, false, 3 * @sizeOf(f32), 0);
+    gl.enableVertexAttribArray(0);
+    log.print(.debug, "GL", "vao+vbo created", .{});
+
+    const vsh = gl.Shader.create(.vertex);
+    defer vsh.delete();
+    try self.compileShader(vsh, "shader.vert");
+
+    const fsh = gl.Shader.create(.fragment);
+    defer fsh.delete();
+    try self.compileShader(fsh, "shader.frag");
+
+    self.prg = gl.Program.create();
+    errdefer self.prg.delete();
+
+    self.prg.attach(vsh);
+    self.prg.attach(fsh);
+    self.prg.link();
+    log.print(.debug, "GL", "shader program created", .{});
 
     return self;
 }
 
 pub fn deinit(self: Self) void {
-    self.vkc.dev.deviceWaitIdle() catch {};
-    self.pipelines.deinit();
-    self.swapchain.deinit();
-    self.vkc.deinit();
+    self.prg.delete();
+    self.vbo.delete();
+    self.vao.delete();
+    self.gl_ctx.delete();
 }
 
-const Queue = struct {
-    handle: vk.Queue,
-    family: u32,
-
-    fn init(vkc: *const Vulkan, family: u32) Queue {
-        return .{
-            .handle = vkc.dev.getDeviceQueue(family, 0),
-            .family = family,
-        };
-    }
-};
+pub fn resize(self: Self) void {
+    const size = self.window.getSize();
+    gl.viewport(0, 0, @intCast(size.width), @intCast(size.height));
+}
 
 pub fn draw(self: *Self) !void {
-    std.debug.print("frame #{d}\n", .{self.swapchain.cur_frame});
+    gl.clearColor(0x2b.0/255.0, 0x33.0/255.0, 0x39.0/255.0, 1.0);
+    gl.clear(.{ .color = true });
+    self.prg.use();
+    self.vao.bind();
+    gl.drawArrays(.triangles, 0, 3);
 
-    try self.swapchain.getCurFrame().wait();
-    try self.swapchain.getCurFrame().resetFence();
-
-    const acq_res = self.swapchain.acqNext() catch |err| switch (err) {
-        error.OutOfDateKHR, error.ImageAcquireFailed => {
-            try self.resizeSwapchain();
-            return;
-        },
-        else => return err,
-    };
-    if (acq_res.state == .suboptimal) {
-        try self.resizeSwapchain();
-        return;
-    }
-
-    const img_idx = acq_res.img_idx;
-    
-    const frame = self.swapchain.getCurFrame();
-    const img = self.swapchain.imgs[img_idx];
-    
-    try frame.cmd_buf.resetCommandBuffer(.{});
-    try frame.cmd_buf.beginCommandBuffer(&.{
-        .flags = .{ .one_time_submit_bit = true },
-    });
-    
-    frame.cmd_buf.beginRenderPass(&.{
-        .render_pass = self.pipelines.render_pass,
-        .framebuffer = img.framebuffer.?,
-        .render_area = .{
-            .offset = .{ .x = 0, .y = 0 },
-            .extent = self.swapchain.extent,
-        },
-        .clear_value_count = 1,
-        .p_clear_values = &[_]vk.ClearValue{
-            .{ .color = .{ .float_32 = .{ 0.5, 0.5, 0.5, 1.0 } } },
-        },
-    }, .@"inline");
-    frame.cmd_buf.endRenderPass();
-    
-    try frame.cmd_buf.endCommandBuffer();
-    
-    const submit_info = vk.SubmitInfo {
-        .wait_semaphore_count = 1,
-        .p_wait_semaphores = (&frame.img_acq)[0..1],
-        .p_wait_dst_stage_mask = (&vk.PipelineStageFlags { .color_attachment_output_bit = true })[0..1],
-        .command_buffer_count = 1,
-        .p_command_buffers = (&frame.cmd_buf.handle)[0..1],
-        .signal_semaphore_count = 1,
-        .p_signal_semaphores = (&img.render_done)[0..1],
-    };
-    self.vkc.dev.queueSubmit(self.graphics_queue.handle, 1, (&submit_info)[0..1], frame.fence) catch |err| {
-        log.print(.err, null, "Queue submit failed: {}", .{err});
-        return err;
-    };
-
-    const present_info = vk.PresentInfoKHR{
-        .wait_semaphore_count = 1,
-        .p_wait_semaphores = (&img.render_done)[0..1],
-        .swapchain_count = 1,
-        .p_swapchains = (&self.swapchain.handle)[0..1],
-        .p_image_indices = (&img_idx)[0..1],
-    };
-    _ = self.vkc.dev.queuePresentKHR(self.present_queue.handle, &present_info) catch |err| {
-        switch (err) {
-            error.OutOfDateKHR => {
-                try self.resizeSwapchain();
-                return;
-            },
-            else => {
-                log.print(.err, null, "Queue present failed: {}", .{err});
-                return err;
-            },
-        }
-    };
-    
-    self.swapchain.nextFrame();
+    sdl.gl.swapWindow(self.window);
 }
 
-pub fn resizeSwapchain(self: *Self) !void {
-    try self.vkc.dev.deviceWaitIdle();
+fn getProcAddressWrapper(comptime _: type, sym: [:0]const u8) ?*const anyopaque {
+    return sdl.gl.getProcAddress(sym);
+}
 
-    const size = self.window.getSize();
-    const new_extent = vk.Extent2D {
-        .width = @intCast(size.width),
-        .height = @intCast(size.height),
-    };
-
-    try self.swapchain.recreate(new_extent);
-    try self.swapchain.createFramebuffers(self.pipelines.render_pass);
+fn compileShader(self: *Self, shader: gl.Shader, comptime name: []const u8) !void {
+    const src: Cstr = @embedFile("shaders/" ++ name);
+    shader.source(1, &[1][]const u8 { std.mem.span(src) });
+    shader.compile();
+    if (shader.get(.compile_status) == 0) {
+        var has_msg = true;
+        const msg = shader.getCompileLog(self.alloc) catch ret: {
+            has_msg = false;
+            break :ret "unknown error";
+        };
+        log.print(.err, "GL", "compilation of shader '" ++ name ++ "' failed: {s}", .{ msg });
+        if (has_msg) {
+            self.alloc.free(msg);
+        }
+        return error.ShaderCompilationFailed;
+    }
+    log.print(.info, "GL", "shader '" ++ name ++ "' compiled successfully", .{});
 }

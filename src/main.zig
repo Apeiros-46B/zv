@@ -1,4 +1,5 @@
 const std = @import("std");
+const gl = @import("zgl");
 
 const App = @import("app.zig");
 

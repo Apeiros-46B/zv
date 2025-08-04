@@ -5,7 +5,6 @@ pkgs.mkShell rec {
 		zig
 		zls
 		shader-slang
-		vulkan-validation-layers
 	];
 
 	buildInputs = with pkgs; [
@@ -19,20 +18,19 @@ pkgs.mkShell rec {
 			'';
 		}))
 
-		# for wgpu
+		# for opengl
+		mesa
+		mesa-demos
+		mesa-gl-headers
 		libGL
+		libGLU
 		shaderc
-		vulkan-headers
-		vulkan-loader
-		vulkan-tools
-		vulkan-tools-lunarg
-		vulkan-extension-layer
-		vulkan-validation-layers
 	];
 
 	shellHook = ''
-		export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:${builtins.toString (pkgs.lib.makeLibraryPath buildInputs)}"
+		export LD_LIBRARY_PATH="/run/opengl-driver/lib:/run/opengl-driver-32/lib:${builtins.toString (pkgs.lib.makeLibraryPath buildInputs)}:$LD_LIBRARY_PATH"
 	'';
 
 	SHADERC_LIB_DIR = "${pkgs.shaderc.lib}/lib";
+	DISPLAY = ":0";
 }
