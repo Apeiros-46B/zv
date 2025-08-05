@@ -13,7 +13,6 @@ window: sdl.Window,
 gl_ctx: sdl.gl.Context,
 
 vao: gl.VertexArray,
-vbo: gl.Buffer,
 
 prg: gl.Program,
 
@@ -35,54 +34,18 @@ pub fn init(alloc: std.mem.Allocator, window: sdl.Window) !Self {
 
     self.vao = gl.VertexArray.create();
     errdefer self.vao.delete();
-
-    const verts = [_]f32 {
-        // pos            // color
-         0.5, -0.5, 0.0,  1.0, 0.0, 0.0,
-        -0.5, -0.5, 0.0,  0.0, 1.0, 0.0,
-         0.0,  0.5, 0.0,  0.0, 0.0, 1.0,
-    };
-    self.vbo = gl.Buffer.create();
-    errdefer self.vbo.delete();
-
     self.vao.bind();
-    self.vbo.bind(.array_buffer);
-    self.vbo.data(f32, &verts, .static_draw);
-    gl.vertexAttribPointer(0, 3, .float, false, 6 * @sizeOf(f32), 0);
-    gl.enableVertexAttribArray(0);
-    gl.vertexAttribPointer(1, 3, .float, false, 6 * @sizeOf(f32), 3 * @sizeOf(f32));
-    gl.enableVertexAttribArray(1);
-    log.print(.debug, "GL", "vao+vbo created", .{});
+    log.print(.debug, "GL", "vao created", .{});
 
-    const vsh = gl.Shader.create(.vertex);
-    defer vsh.delete();
-    try self.compileShader(vsh, "shader.vert");
-
-    const fsh = gl.Shader.create(.fragment);
-    defer fsh.delete();
-    try self.compileShader(fsh, "shader.frag");
-
-    self.prg = gl.Program.create();
-    errdefer self.prg.delete();
-
-    self.prg.attach(vsh);
-    self.prg.attach(fsh);
-    self.prg.link();
-    log.print(.debug, "GL", "shader program created", .{});
+    try self.compileShaders();
 
     return self;
 }
 
 pub fn deinit(self: Self) void {
     self.prg.delete();
-    self.vbo.delete();
     self.vao.delete();
     self.gl_ctx.delete();
-}
-
-pub fn resize(self: Self) void {
-    const size = self.window.getSize();
-    gl.viewport(0, 0, @intCast(size.width), @intCast(size.height));
 }
 
 pub fn draw(self: *Self) !void {
@@ -96,25 +59,85 @@ pub fn draw(self: *Self) !void {
     sdl.gl.swapWindow(self.window);
 }
 
+pub fn handleEvent(self: *Self, ev: sdl.Event) !void {
+    switch (ev) {
+        .window => |wev| switch (wev.type) {
+            .resized => self.resize(),
+            else => {},
+        },
+        .key_down => |kev| try self.handleKeyDown(kev),
+        else => {},
+    }
+}
+
+pub fn handleKeyDown(self: *Self, kev: sdl.KeyboardEvent) !void {
+    if (kev.is_repeat) {
+        return;
+    }
+    switch (kev.keycode) {
+        .r => self.reloadShaders(),
+        else => {},
+    }
+}
+
 fn getProcAddressWrapper(comptime _: type, sym: [:0]const u8) ?*const anyopaque {
     return sdl.gl.getProcAddress(sym);
 }
 
+fn resize(self: *Self) void {
+    const size = self.window.getSize();
+    gl.viewport(0, 0, @intCast(size.width), @intCast(size.height));
+}
+
+fn reloadShaders(self: *Self) void {
+    self.compileShaders() catch {
+        log.print(.warn, "GL", "reloading shaders failed, using previous shaders", .{});
+        return;
+    };
+    log.print(.info, "GL", "reloaded shaders", .{});
+}
+
+fn compileShaders(self: *Self) !void {
+    const vsh = gl.Shader.create(.vertex);
+    defer vsh.delete();
+    try self.compileShader(vsh, "shader.vert");
+
+    const fsh = gl.Shader.create(.fragment);
+    defer fsh.delete();
+    try self.compileShader(fsh, "shader.frag");
+
+    self.prg = gl.Program.create();
+    self.prg.attach(vsh);
+    self.prg.attach(fsh);
+    self.prg.link();
+
+    log.print(.debug, "GL", "shader program created", .{});
+}
+
 fn compileShader(self: *Self, shader: gl.Shader, comptime name: []const u8) !void {
-    const src: Cstr = @embedFile("shaders/" ++ name);
-    shader.source(1, &[1][]const u8 { std.mem.span(src) });
+    const file = try std.fs.cwd().openFile("src/shaders/" ++ name, .{});
+    defer file.close();
+
+    const src = try file.readToEndAlloc(self.alloc, std.math.maxInt(usize));
+    defer self.alloc.free(src);
+
+    shader.source(1, &[1][]const u8 { src });
     shader.compile();
+
     if (shader.get(.compile_status) == 0) {
         var has_msg = true;
         const msg = shader.getCompileLog(self.alloc) catch ret: {
             has_msg = false;
-            break :ret "unknown error";
+            break :ret "unknown error\n";
         };
-        log.print(.err, "GL", "compilation of shader '" ++ name ++ "' failed: {s}", .{ msg });
+        log.print(.err, "shader", "'" ++ name ++ "' failed to compile: {s}", .{
+            msg[0..msg.len - 2], // remove last newline character from compile logs
+        });
         if (has_msg) {
             self.alloc.free(msg);
         }
         return error.ShaderCompilationFailed;
+    } else {
+        log.print(.debug, "shader", "'" ++ name ++ "' compiled successfully", .{});
     }
-    log.print(.info, "GL", "shader '" ++ name ++ "' compiled successfully", .{});
 }

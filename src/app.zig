@@ -48,12 +48,9 @@ pub fn run(self: *Self) !void {
         while (sdl.pollEvent()) |ev| {
             switch (ev) {
                 .quit => break :main,
-                .window => |wev| switch (wev.type) {
-                    .resized => self.renderer.resize(),
-                    else => {},
-                },
                 else => {},
             }
+            try self.renderer.handleEvent(ev);
         }
         try self.renderer.draw();
     }
