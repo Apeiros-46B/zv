@@ -37,9 +37,10 @@ pub fn init(alloc: std.mem.Allocator, window: sdl.Window) !Self {
     errdefer self.vao.delete();
 
     const verts = [_]f32 {
-        -0.5, -0.5, 0.0,
-         0.5, -0.5, 0.0,
-         0.0,  0.5, 0.0,
+        // pos            // color
+         0.5, -0.5, 0.0,  1.0, 0.0, 0.0,
+        -0.5, -0.5, 0.0,  0.0, 1.0, 0.0,
+         0.0,  0.5, 0.0,  0.0, 0.0, 1.0,
     };
     self.vbo = gl.Buffer.create();
     errdefer self.vbo.delete();
@@ -47,8 +48,10 @@ pub fn init(alloc: std.mem.Allocator, window: sdl.Window) !Self {
     self.vao.bind();
     self.vbo.bind(.array_buffer);
     self.vbo.data(f32, &verts, .static_draw);
-    gl.vertexAttribPointer(0, 3, .float, false, 3 * @sizeOf(f32), 0);
+    gl.vertexAttribPointer(0, 3, .float, false, 6 * @sizeOf(f32), 0);
     gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(1, 3, .float, false, 6 * @sizeOf(f32), 3 * @sizeOf(f32));
+    gl.enableVertexAttribArray(1);
     log.print(.debug, "GL", "vao+vbo created", .{});
 
     const vsh = gl.Shader.create(.vertex);
@@ -83,8 +86,9 @@ pub fn resize(self: Self) void {
 }
 
 pub fn draw(self: *Self) !void {
-    gl.clearColor(0x2b.0/255.0, 0x33.0/255.0, 0x39.0/255.0, 1.0);
+    gl.clearColor(1.0, 1.0, 1.0, 1.0);
     gl.clear(.{ .color = true });
+
     self.prg.use();
     self.vao.bind();
     gl.drawArrays(.triangles, 0, 3);

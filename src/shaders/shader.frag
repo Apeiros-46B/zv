@@ -1,7 +1,8 @@
 #version 410
 
+in vec3 vert_color;
 out vec4 frag_color;
 
 void main() {
-	frag_color = vec4(0x7f/255.0, 0xbb/255.0, 0xb3/255.0, 1.0f);
+	frag_color = vec4(vert_color, 1.0f);
 }
