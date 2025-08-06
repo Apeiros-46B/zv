@@ -2,11 +2,11 @@ const std = @import("std");
 const sdl = @import("sdl2");
 const gl = @import("zgl");
 
-const Renderer = @import("renderer.zig");
+const Engine = @import("engine.zig");
 const Self = @This();
 
 window: sdl.Window,
-renderer: Renderer,
+engine: Engine,
 
 pub fn init(alloc: std.mem.Allocator) !Self {
     var self: Self = undefined;
@@ -32,13 +32,14 @@ pub fn init(alloc: std.mem.Allocator) !Self {
     );
     errdefer self.window.destroy();
 
-    self.renderer = try Renderer.init(alloc, self.window);
+    self.engine = try Engine.init(alloc, self.window);
+    errdefer self.engine.deinit();
 
     return self;
 }
 
 pub fn deinit(self: Self) void {
-    self.renderer.deinit();
+    self.engine.deinit();
     self.window.destroy();
     sdl.quit();
 }
@@ -50,8 +51,8 @@ pub fn run(self: *Self) !void {
                 .quit => break :main,
                 else => {},
             }
-            try self.renderer.handleEvent(ev);
+            try self.engine.handleEvent(ev);
         }
-        try self.renderer.draw();
+        try self.engine.loop();
     }
 }

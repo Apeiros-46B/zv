@@ -6,8 +6,6 @@ const log = @import("log.zig");
 
 const Self = @This();
 
-const Cstr = [*:0]const u8;
-
 alloc: std.mem.Allocator,
 window: sdl.Window,
 gl_ctx: sdl.gl.Context,
@@ -15,6 +13,10 @@ gl_ctx: sdl.gl.Context,
 vao: gl.VertexArray,
 
 prg: gl.Program,
+
+fn getProcAddressWrapper(comptime _: type, sym: [:0]const u8) ?*const anyopaque {
+    return sdl.gl.getProcAddress(sym);
+}
 
 pub fn init(alloc: std.mem.Allocator, window: sdl.Window) !Self {
     var self: Self = undefined;
@@ -59,37 +61,12 @@ pub fn draw(self: *Self) !void {
     sdl.gl.swapWindow(self.window);
 }
 
-pub fn handleEvent(self: *Self, ev: sdl.Event) !void {
-    switch (ev) {
-        .window => |wev| switch (wev.type) {
-            .resized => self.resize(),
-            else => {},
-        },
-        .key_down => |kev| try self.handleKeyDown(kev),
-        else => {},
-    }
-}
-
-pub fn handleKeyDown(self: *Self, kev: sdl.KeyboardEvent) !void {
-    if (kev.is_repeat) {
-        return;
-    }
-    switch (kev.keycode) {
-        .r => self.reloadShaders(),
-        else => {},
-    }
-}
-
-fn getProcAddressWrapper(comptime _: type, sym: [:0]const u8) ?*const anyopaque {
-    return sdl.gl.getProcAddress(sym);
-}
-
-fn resize(self: *Self) void {
+pub fn resize(self: *Self) void {
     const size = self.window.getSize();
     gl.viewport(0, 0, @intCast(size.width), @intCast(size.height));
 }
 
-fn reloadShaders(self: *Self) void {
+pub fn reloadShaders(self: *Self) void {
     self.compileShaders() catch {
         log.print(.warn, "GL", "reloading shaders failed, using previous shaders", .{});
         return;
