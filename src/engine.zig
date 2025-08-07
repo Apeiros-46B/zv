@@ -6,13 +6,18 @@ const log = @import("log.zig");
 
 const Renderer = @import("renderer.zig");
 const Self = @This();
+const Thread = std.Thread;
+const AtomicBool = std.atomic.Value(bool);
 
 alloc: std.mem.Allocator,
 window: sdl.Window,
 
+should_resize: AtomicBool,
+render_thread: ?Thread,
 renderer: Renderer,
+
+running: AtomicBool,
 started: bool,
-time: i128,
 
 pub fn init(alloc: std.mem.Allocator, window: sdl.Window) !Self {
     var self: Self = undefined;
@@ -20,11 +25,13 @@ pub fn init(alloc: std.mem.Allocator, window: sdl.Window) !Self {
     self.alloc = alloc;
     self.window = window;
 
-    self.renderer = try Renderer.init(alloc, window);
+    self.should_resize = AtomicBool.init(false);
+    self.render_thread = null;
+    self.renderer = try Renderer.init(alloc, window, &self.should_resize);
     errdefer self.renderer.deinit();
 
+    self.running = AtomicBool.init(true);
     self.started = false;
-    self.time = std.time.nanoTimestamp();
 
     return self;
 }
@@ -37,47 +44,49 @@ pub fn loop(self: *Self) !void {
     if (!self.started) {
         try self.start();
     }
-
-    // const now = std.time.nanoTimestamp();
-    // const dt = now - self.time;
-
-    // try self.renderer.draw();   
-
-    // self.time = now;
 }
 
 pub fn start(self: *Self) !void {
     self.started = true;
+    self.render_thread = try std.Thread.spawn(.{}, renderLoop, .{
+        self.alloc,
+        self.window,
+        &self.should_resize,
+        &self.running,
+    });
 
-    const render_thread = try std.Thread.spawn(.{}, renderLoop, .{ self.alloc, self.window });
-    render_thread.detach();
+    log.print(.debug, "engine", "startup complete", .{});
 }
 
 pub fn stop(self: *Self) !void {
-    _ = self;
+    self.running.store(false, .seq_cst);
+    self.render_thread.?.join();
+
+    log.print(.debug, "engine", "shutdown complete", .{});
 }
 
-fn renderLoop(alloc: std.mem.Allocator, window: sdl.Window) !void {
-    // var time = std.time.nanoTimestamp();
-    var renderer = try Renderer.init(alloc, window);
+fn renderLoop(
+    alloc: std.mem.Allocator,
+    window: sdl.Window,
+    should_resize: *AtomicBool,
+    running: *AtomicBool
+) !void {
+    var renderer = try Renderer.init(alloc, window, should_resize);
     defer renderer.deinit();
 
-    // TODO: fix segfault when closing the app. need to end this loop somehow, so we need a cross-thread communication mechanism like a channel or condvar
-    while (true) {
-        // const now = std.time.nanoTimestamp();
-        // const dt = now - time;
+    log.print(.debug, "render", "startup complete", .{});
 
+    while (running.load(.seq_cst)) {
         try renderer.draw();   
-        // log.print(.debug, "render", "dt: {}", .{ dt });
-
-        // time = now;
     }
+
+    log.print(.debug, "render", "shutdown complete", .{});
 }
 
 pub fn handleEvent(self: *Self, ev: sdl.Event) !void {
     switch (ev) {
         .window => |wev| switch (wev.type) {
-            .resized => self.renderer.resize(),
+            .resized => self.should_resize.store(true, .seq_cst),
             else => {},
         },
         .key_down => |kev| try self.handleKeyDown(kev),

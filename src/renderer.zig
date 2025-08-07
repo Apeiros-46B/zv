@@ -5,24 +5,27 @@ const gl = @import("zgl");
 const log = @import("log.zig");
 
 const Self = @This();
+const AtomicBool = std.atomic.Value(bool);
 
 alloc: std.mem.Allocator,
 window: sdl.Window,
+should_resize: *AtomicBool,
+
 gl_ctx: sdl.gl.Context,
-
 vao: gl.VertexArray,
-
 prg: gl.Program,
+
 
 fn getProcAddressWrapper(comptime _: type, sym: [:0]const u8) ?*const anyopaque {
     return sdl.gl.getProcAddress(sym);
 }
 
-pub fn init(alloc: std.mem.Allocator, window: sdl.Window) !Self {
+pub fn init(alloc: std.mem.Allocator, window: sdl.Window, should_resize: *AtomicBool) !Self {
     var self: Self = undefined;
 
     self.alloc = alloc;
     self.window = window;
+    self.should_resize = should_resize;
 
     self.gl_ctx = try sdl.gl.createContext(window);
     errdefer self.gl_ctx.delete();
@@ -51,6 +54,10 @@ pub fn deinit(self: Self) void {
 }
 
 pub fn draw(self: *Self) !void {
+    if (self.should_resize.load(.seq_cst)) {
+        self.resize();
+    }
+
     gl.clearColor(1.0, 1.0, 1.0, 1.0);
     gl.clear(.{ .color = true });
 
@@ -61,7 +68,7 @@ pub fn draw(self: *Self) !void {
     sdl.gl.swapWindow(self.window);
 }
 
-pub fn resize(self: *Self) void {
+fn resize(self: *Self) void {
     const size = self.window.getSize();
     gl.viewport(0, 0, @intCast(size.width), @intCast(size.height));
 }
