@@ -25,8 +25,6 @@ fn getProcAddressWrapper(comptime _: type, sym: [:0]const u8) ?*const anyopaque 
 pub fn init(alloc: std.mem.Allocator, window: sdl.Window) !Self {
     var self: Self = undefined;
 
-    std.debug.print("{}", .{zlm.vec2(1, 2).x});
-
     self.alloc = alloc;
     self.window = window;
     self.camera = Camera.init();
@@ -79,11 +77,11 @@ pub fn deinit(self: Self) void {
     log.print(.debug, "renderer", "deinit complete", .{});
 }
 
-pub fn draw(self: *Self) !void {
+pub fn loop(self: *Self, dt: f32) !void {
     gl.clearColor(1.0, 1.0, 1.0, 1.0);
     gl.clear(.{ .color = true });
 
-    self.camera.update();
+    self.camera.loop(dt);
 
     self.pass.use();
     self.vao.bind();
@@ -106,7 +104,19 @@ pub fn resize(self: *Self) void {
     self.camera.resize(width, height);
 }
 
-pub fn reloadShaders(self: *Self) void {
+pub fn handleKeyDown(self: *Self, kev: sdl.KeyboardEvent) void {
+    self.camera.handleKeyDown(kev);
+    switch (kev.keycode) {
+        .r => self.reloadShaders(),
+        else => {},
+    }
+}
+
+pub fn handleKeyUp(self: *Self, kev: sdl.KeyboardEvent) void {
+    self.camera.handleKeyUp(kev);
+}
+
+fn reloadShaders(self: *Self) void {
     self.pass.recompile();
 }
 
