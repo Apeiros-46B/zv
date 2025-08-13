@@ -4,13 +4,12 @@ const gl = @import("zgl");
 const zlm = @import("zlm");
 
 const log = @import("log.zig");
-
 const Camera = @import("camera.zig");
+const InputState = @import("input.zig");
 const Self = @This();
 
 alloc: std.mem.Allocator,
 window: sdl.Window,
-camera: Camera,
 
 gl_ctx: sdl.gl.Context,
 vao: gl.VertexArray,
@@ -27,7 +26,6 @@ pub fn init(alloc: std.mem.Allocator, window: sdl.Window) !Self {
 
     self.alloc = alloc;
     self.window = window;
-    self.camera = Camera.init();
 
     self.gl_ctx = try sdl.gl.createContext(window);
     errdefer self.gl_ctx.delete();
@@ -36,8 +34,6 @@ pub fn init(alloc: std.mem.Allocator, window: sdl.Window) !Self {
 
     try gl.loadExtensions(void, getProcAddressWrapper);
     log.print(.debug, "GL", "extensions loaded", .{});
-
-    self.resize();
 
     const verts = [_]f32{
         -0.5, -0.5, 0.0, 1.0, 0.0, 0.0,
@@ -77,19 +73,21 @@ pub fn deinit(self: Self) void {
     log.print(.debug, "renderer", "deinit complete", .{});
 }
 
-pub fn loop(self: *Self, dt: f32) !void {
+pub fn draw(self: *Self, input: *const InputState, camera: *const Camera) !void {
+    if (input.isJustPressed(.reload_shaders)) {
+        self.pass.recompile();
+    }
+
     gl.clearColor(1.0, 1.0, 1.0, 1.0);
     gl.clear(.{ .color = true });
-
-    self.camera.loop(dt);
 
     self.pass.use();
     self.vao.bind();
 
     const model = zlm.Mat4.identity;
     self.pass.setMat4("model", model);
-    self.pass.setMat4("view", self.camera.view);
-    self.pass.setMat4("proj", self.camera.proj);
+    self.pass.setMat4("view", camera.view);
+    self.pass.setMat4("proj", camera.proj);
 
     gl.drawArrays(.triangles, 0, 3);
 
@@ -98,26 +96,7 @@ pub fn loop(self: *Self, dt: f32) !void {
 
 pub fn resize(self: *Self) void {
     const size = self.window.getSize();
-    const width: usize = @intCast(size.width);
-    const height: usize = @intCast(size.height);
-    gl.viewport(0, 0, width, height);
-    self.camera.resize(width, height);
-}
-
-pub fn handleKeyDown(self: *Self, kev: sdl.KeyboardEvent) void {
-    self.camera.handleKeyDown(kev);
-    switch (kev.keycode) {
-        .r => self.reloadShaders(),
-        else => {},
-    }
-}
-
-pub fn handleKeyUp(self: *Self, kev: sdl.KeyboardEvent) void {
-    self.camera.handleKeyUp(kev);
-}
-
-fn reloadShaders(self: *Self) void {
-    self.pass.recompile();
+    gl.viewport(0, 0, @intCast(size.width), @intCast(size.height));
 }
 
 const ShaderPass = struct {

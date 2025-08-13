@@ -3,38 +3,31 @@ const sdl = @import("sdl2");
 
 const Self = @This();
 
-pressed: std.EnumSet(InputBtn),
-just_pressed: std.EnumSet(InputBtn),
-just_released: std.EnumSet(InputBtn),
+const Inputs = std.EnumSet(InputBtn);
+
+pressed: Inputs,
+just_pressed: Inputs,
+just_released: Inputs,
 
 pub fn init() Self {
     var self: Self = undefined;
 
-    self.pressed = std.EnumSet.initEmpty();
-    self.just_pressed = std.EnumSet.initEmpty();
-    self.just_released = std.EnumSet.initEmpty();
+    self.pressed = Inputs.initEmpty();
+    self.just_pressed = Inputs.initEmpty();
+    self.just_released = Inputs.initEmpty();
 
     return self;
 }
 
-pub fn isPressed(self: *Self, btn: InputBtn) bool {
-    return self.pressed.contains(btn);
-}
-
-pub fn isJustPressed(self: *Self, btn: InputBtn) bool {
-    return self.just_pressed.contains(btn);
-}
-
-pub fn isJustReleased(self: *Self, btn: InputBtn) bool {
-    return self.just_released.contains(btn);
-}
-
-pub fn processPost(self: *Self) void {
-    self.just_pressed.clear();
-    self.just_released.clear();
+pub fn loopPost(self: *Self) void {
+    self.just_pressed = Inputs.initEmpty();
+    self.just_released = Inputs.initEmpty();
 }
 
 pub fn handleKeyDown(self: *Self, kev: sdl.KeyboardEvent) void {
+    if (kev.is_repeat) {
+        return;
+    }
     const btn = InputBtn.fromScancode(kev.scancode);
     self.pressed.insert(btn);
     self.just_pressed.insert(btn);
@@ -83,7 +76,7 @@ pub const InputBtn = enum {
             .s => .move_back,
             .d => .move_right,
             .space => .move_up,
-            .shift => .move_down,
+            .left_shift => .move_down,
             .r => .reload_shaders,
             else => .unrecognized,
         };
@@ -97,3 +90,15 @@ pub const InputBtn = enum {
         };
     }
 };
+
+pub fn isPressed(self: *const Self, btn: InputBtn) bool {
+    return self.pressed.contains(btn);
+}
+
+pub fn isJustPressed(self: *const Self, btn: InputBtn) bool {
+    return self.just_pressed.contains(btn);
+}
+
+pub fn isJustReleased(self: *const Self, btn: InputBtn) bool {
+    return self.just_released.contains(btn);
+}
