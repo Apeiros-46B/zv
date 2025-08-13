@@ -57,13 +57,9 @@ pub fn handleEvent(self: *Self, ev: sdl.Event) !void {
             .resized => self.resize(),
             else => {},
         },
-        .mouse_button_down => |mev| self.input.handleMouseBtnDown(mev),
-        .mouse_button_up => |mev| self.input.handleMouseBtnUp(mev),
-        //.mouse_motion => |mev| self.input.handleMouseMotion(mev),
-        .key_down => |kev| self.input.handleKeyDown(kev),
-        .key_up => |kev| self.input.handleKeyUp(kev),
         else => {},
     }
+    self.input.handleEvent(ev);
 }
 
 fn resize(self: *Self) void {

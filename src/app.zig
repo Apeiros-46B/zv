@@ -8,6 +8,7 @@ const Self = @This();
 window: sdl.Window,
 engine: Engine,
 
+// TODO: merge engine and app into one file
 pub fn init(alloc: std.mem.Allocator) !Self {
     var self: Self = undefined;
 

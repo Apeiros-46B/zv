@@ -1,6 +1,8 @@
 const std = @import("std");
 const sdl = @import("sdl2");
+const zlm = @import("zlm");
 
+const log = @import("log.zig");
 const Self = @This();
 
 const Inputs = std.EnumSet(InputBtn);
@@ -8,6 +10,7 @@ const Inputs = std.EnumSet(InputBtn);
 pressed: Inputs,
 just_pressed: Inputs,
 just_released: Inputs,
+mouse_motion: zlm.Vec2,
 
 pub fn init() Self {
     var self: Self = undefined;
@@ -15,6 +18,7 @@ pub fn init() Self {
     self.pressed = Inputs.initEmpty();
     self.just_pressed = Inputs.initEmpty();
     self.just_released = Inputs.initEmpty();
+    self.mouse_motion = zlm.Vec2.zero;
 
     return self;
 }
@@ -22,9 +26,21 @@ pub fn init() Self {
 pub fn loopPost(self: *Self) void {
     self.just_pressed = Inputs.initEmpty();
     self.just_released = Inputs.initEmpty();
+    self.mouse_motion = zlm.Vec2.zero;
 }
 
-pub fn handleKeyDown(self: *Self, kev: sdl.KeyboardEvent) void {
+pub fn handleEvent(self: *Self, ev: sdl.Event) void {
+    switch (ev) {
+        .key_down => |kev| self.handleKeyDown(kev),
+        .key_up => |kev| self.handleKeyUp(kev),
+        .mouse_button_down => |mev| self.handleMouseBtnDown(mev),
+        .mouse_button_up => |mev| self.handleMouseBtnUp(mev),
+        .mouse_motion => |mev| self.handleMouseMotion(mev),
+        else => {},
+    }
+}
+
+fn handleKeyDown(self: *Self, kev: sdl.KeyboardEvent) void {
     if (kev.is_repeat) {
         return;
     }
@@ -34,25 +50,30 @@ pub fn handleKeyDown(self: *Self, kev: sdl.KeyboardEvent) void {
     self.just_released.remove(btn);
 }
 
-pub fn handleKeyUp(self: *Self, kev: sdl.KeyboardEvent) void {
+fn handleKeyUp(self: *Self, kev: sdl.KeyboardEvent) void {
     const btn = InputBtn.fromScancode(kev.scancode);
     self.pressed.remove(btn);
     self.just_pressed.remove(btn);
     self.just_released.insert(btn);
 }
 
-pub fn handleMouseBtnDown(self: *Self, mev: sdl.MouseButtonEvent) void {
+fn handleMouseBtnDown(self: *Self, mev: sdl.MouseButtonEvent) void {
     const btn = InputBtn.fromMouseButton(mev.button);
     self.pressed.insert(btn);
     self.just_pressed.insert(btn);
     self.just_released.remove(btn);
 }
 
-pub fn handleMouseBtnUp(self: *Self, mev: sdl.MouseButtonEvent) void {
+fn handleMouseBtnUp(self: *Self, mev: sdl.MouseButtonEvent) void {
     const btn = InputBtn.fromMouseButton(mev.button);
     self.pressed.remove(btn);
     self.just_pressed.remove(btn);
     self.just_released.insert(btn);
+}
+
+fn handleMouseMotion(self: *Self, mev: sdl.MouseMotionEvent) void {
+    self.mouse_motion.x = @floatFromInt(mev.delta_x);
+    self.mouse_motion.y = @floatFromInt(mev.delta_y);
 }
 
 pub const InputBtn = enum {
@@ -66,6 +87,7 @@ pub const InputBtn = enum {
     move_up,
     move_down,
     reload_shaders,
+    capture_cursor,
     unrecognized,
 
     pub fn fromScancode(sc: sdl.Scancode) InputBtn {
@@ -86,6 +108,7 @@ pub const InputBtn = enum {
         return switch (sc) {
             .left => .break_block,
             .right => .place_block,
+            .middle => .capture_cursor,
             else => .unrecognized,
         };
     }
