@@ -7,7 +7,6 @@ pub fn build(b: *std.Build) void {
 
     // declare modules
     const exe_mod = b.createModule(.{
-
         .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
@@ -23,6 +22,12 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     exe_mod.addImport("zgl", zgl.module("zgl"));
+
+    const zlm = b.dependency("zlm", .{
+        .target = target,
+        .optimize = optimize,
+    });
+    exe_mod.addImport("zlm", zlm.module("zlm"));
 
     const sdl_sdk = sdl.init(b, .{});
     sdl_sdk.link(exe, .dynamic, sdl.Library.SDL2);

@@ -55,5 +55,4 @@ pub fn run(self: *Self) !void {
         }
         try self.engine.loop();
     }
-    try self.engine.stop();
 }

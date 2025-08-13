@@ -13,6 +13,10 @@
             .url = "git+https://github.com/ziglibs/zgl.git#5ed429cf5746e51ce72856386be6debf8ef4783c",
             .hash = "zgl-1.1.0-p_NpAKE-CgBnmyP12H-ldbZLdImx1btyk8zPx0I5CGHX",
         },
+        .zlm = .{
+            .url = "git+https://github.com/ziglibs/zlm.git#e4dc388f2ce73d0734867c5baa9e9a5c84238ca4",
+            .hash = "zlm-0.1.0-AAAAAB6gAABdoukNmdFJDjSeVeSt8trl5EKm8TOcJqQs",
+        },
     },
 
     .paths = .{
