@@ -42,7 +42,7 @@ pub fn deinit(self: Self) void {
 
 pub fn loop(self: *Self) !void {
     const time = std.time.nanoTimestamp();
-    const dt: f32 = util.ratio(time - self.time, 1_000_000);
+    const dt: f32 = util.ratio(time - self.time, 1_000_000_000); // in seconds
 
     self.camera.loop(dt, &self.input);
     try self.renderer.draw(&self.input, &self.camera);
@@ -57,6 +57,7 @@ pub fn handleEvent(self: *Self, ev: sdl.Event) !void {
             .resized => self.resize(),
             else => {},
         },
+        .mouse_motion => |mev| self.camera.onMouseMotion(mev.delta_x, mev.delta_y),
         else => {},
     }
     self.input.handleEvent(ev);

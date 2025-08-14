@@ -10,7 +10,6 @@ const Inputs = std.EnumSet(InputBtn);
 pressed: Inputs,
 just_pressed: Inputs,
 just_released: Inputs,
-mouse_motion: zlm.Vec2,
 
 pub fn init() Self {
     var self: Self = undefined;
@@ -18,7 +17,6 @@ pub fn init() Self {
     self.pressed = Inputs.initEmpty();
     self.just_pressed = Inputs.initEmpty();
     self.just_released = Inputs.initEmpty();
-    self.mouse_motion = zlm.Vec2.zero;
 
     return self;
 }
@@ -26,7 +24,6 @@ pub fn init() Self {
 pub fn loopPost(self: *Self) void {
     self.just_pressed = Inputs.initEmpty();
     self.just_released = Inputs.initEmpty();
-    self.mouse_motion = zlm.Vec2.zero;
 }
 
 pub fn handleEvent(self: *Self, ev: sdl.Event) void {
@@ -35,7 +32,6 @@ pub fn handleEvent(self: *Self, ev: sdl.Event) void {
         .key_up => |kev| self.handleKeyUp(kev),
         .mouse_button_down => |mev| self.handleMouseBtnDown(mev),
         .mouse_button_up => |mev| self.handleMouseBtnUp(mev),
-        .mouse_motion => |mev| self.handleMouseMotion(mev),
         else => {},
     }
 }
@@ -69,11 +65,6 @@ fn handleMouseBtnUp(self: *Self, mev: sdl.MouseButtonEvent) void {
     self.pressed.remove(btn);
     self.just_pressed.remove(btn);
     self.just_released.insert(btn);
-}
-
-fn handleMouseMotion(self: *Self, mev: sdl.MouseMotionEvent) void {
-    self.mouse_motion.x = @floatFromInt(mev.delta_x);
-    self.mouse_motion.y = @floatFromInt(mev.delta_y);
 }
 
 pub const InputBtn = enum {
