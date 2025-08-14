@@ -40,10 +40,10 @@ pub fn init(window: sdl.Window) Self {
 
     self.pos = zlm.vec3(0, 0, 2);
     self.pitch = 0.0;
-    self.yaw = 0.0;
+    self.yaw = zlm.toRadians(-90.0);
 
-    self.dir = zlm.Vec3.zero;
-    self.right = zlm.Vec3.zero;
+    self.dir = zlm.vec3(0, 0, -1);
+    self.right = zlm.vec3(-1, 0, 0);
     self.view = zlm.Mat4.identity;
     self.proj = zlm.Mat4.identity;
 
