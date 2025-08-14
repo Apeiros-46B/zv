@@ -30,10 +30,10 @@ pub fn init(alloc: std.mem.Allocator, window: sdl.Window) !Self {
     self.gl_ctx = try sdl.gl.createContext(window);
     errdefer self.gl_ctx.delete();
     try self.gl_ctx.makeCurrent(window);
-    log.print(.debug, "GL", "context loaded", .{});
+    log.print(.debug, "renderer", "context loaded", .{});
 
     try gl.loadExtensions(void, getProcAddressWrapper);
-    log.print(.debug, "GL", "extensions loaded", .{});
+    log.print(.debug, "renderer", "extensions loaded", .{});
 
     const verts = [_]f32{
         -0.5, -0.5, 0.0, 1.0, 0.0, 0.0,
@@ -43,11 +43,11 @@ pub fn init(alloc: std.mem.Allocator, window: sdl.Window) !Self {
 
     self.vao = gl.VertexArray.create();
     errdefer self.vao.delete();
-    log.print(.debug, "GL", "vao created", .{});
+    log.print(.debug, "renderer", "vao created", .{});
 
     self.vbo = gl.Buffer.create();
     errdefer self.vbo.delete();
-    log.print(.debug, "GL", "vbo created", .{});
+    log.print(.debug, "renderer", "vbo created", .{});
 
     self.vao.bind();
     self.vbo.bind(.array_buffer);
@@ -120,18 +120,18 @@ const ShaderPass = struct {
         try self.compileShader(.fragment, "shader.frag");
         self.prg.link();
 
-        log.print(.debug, "GL", "shader program created", .{});
+        log.print(.debug, "renderer", "shader program created", .{});
     }
 
     fn recompile(self: *ShaderPass) void {
         const old_prg = self.prg;
         self.compile() catch {
             self.prg = old_prg;
-            log.print(.warn, "GL", "reloading shaders failed, using previous shaders", .{});
+            log.print(.warn, "renderer", "reloading shaders failed, using previous shaders", .{});
             return;
         };
         old_prg.delete();
-        log.print(.info, "GL", "reloaded shaders", .{});
+        log.print(.info, "renderer", "reloaded shaders", .{});
     }
 
     fn deinit(self: ShaderPass) void {
@@ -145,7 +145,7 @@ const ShaderPass = struct {
     fn setMat4(self: *ShaderPass, name: [:0]const u8, value: zlm.Mat4) void {
         const location = gl.getUniformLocation(self.prg, name);
         if (location == null) {
-            log.print(.warn, "GL", "uniform '{s}' not found", .{name});
+            log.print(.warn, "renderer", "uniform '{s}' not found", .{name});
             return;
         }
         self.prg.uniformMatrix4(location, false, &[_][4][4]f32{value.fields});
@@ -170,7 +170,7 @@ const ShaderPass = struct {
                 has_msg = false;
                 break :ret "unknown error\n";
             };
-            log.print(.err, "shader", "'" ++ name ++ "' failed to compile: {s}", .{
+            log.print(.err, "renderer", "'" ++ name ++ "' failed to compile: {s}", .{
                 msg[0 .. msg.len - 2], // remove last newline character from compile logs
             });
             if (has_msg) {
@@ -178,7 +178,7 @@ const ShaderPass = struct {
             }
             return error.ShaderCompilationFailed;
         } else {
-            log.print(.debug, "shader", "'" ++ name ++ "' compiled successfully", .{});
+            log.print(.debug, "renderer", "'" ++ name ++ "' compiled successfully", .{});
         }
 
         self.prg.attach(shader);

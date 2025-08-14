@@ -17,14 +17,36 @@ renderer: Renderer,
 
 time: i128, // nanoseconds
 
-pub fn init(alloc: std.mem.Allocator, window: sdl.Window) !Self {
+pub fn init(alloc: std.mem.Allocator) !Self {
     var self: Self = undefined;
 
     self.alloc = alloc;
-    self.window = window;
+
+    try sdl.init(.{
+        .video = true,
+        .audio = true,
+        .events = true,
+    });
+    errdefer sdl.quit();
+
+    try sdl.gl.setAttribute(.{ .context_profile_mask = sdl.gl.Profile.core });
+    try sdl.gl.setAttribute(.{ .context_major_version = 4 });
+    try sdl.gl.setAttribute(.{ .context_minor_version = 1 });
+
+    self.window = try sdl.createWindow(
+        "Hello world!",
+        .{ .centered = {} },
+        .{ .centered = {} },
+        640,
+        480,
+        .{ .vis = .shown, .resizable = true, .context = .opengl },
+    );
+    errdefer self.window.destroy();
+
     self.input = InputState.init();
-    self.camera = Camera.init(window);
-    self.renderer = try Renderer.init(alloc, window);
+    self.camera = Camera.init(self.window);
+    self.renderer = try Renderer.init(alloc, self.window);
+    errdefer self.renderer.deinit();
 
     self.resize();
     self.time = std.time.nanoTimestamp();
@@ -36,31 +58,36 @@ pub fn init(alloc: std.mem.Allocator, window: sdl.Window) !Self {
 
 pub fn deinit(self: Self) void {
     self.renderer.deinit();
+    self.window.destroy();
+    sdl.quit();
 
     log.print(.debug, "engine", "deinit complete", .{});
 }
 
-pub fn loop(self: *Self) !void {
-    const time = std.time.nanoTimestamp();
-    const dt: f32 = util.ratio(time - self.time, 1_000_000_000); // in seconds
+pub fn run(self: *Self) !void {
+    main: while (true) {
+        while (sdl.pollEvent()) |ev| {
+            switch (ev) {
+                .quit => break :main,
+                .window => |wev| switch (wev.type) {
+                    .resized => self.resize(),
+                    else => {},
+                },
+                .mouse_motion => |mev| self.camera.onMouseMotion(mev.delta_x, mev.delta_y),
+                else => {},
+            }
+            self.input.handleEvent(ev);
+        }
 
-    self.camera.loop(dt, &self.input);
-    try self.renderer.draw(&self.input, &self.camera);
+        const time = std.time.nanoTimestamp();
+        const dt: f32 = util.ratio(time - self.time, 1_000_000_000); // in seconds
 
-    self.time = time;
-    self.input.loopPost();
-}
+        self.camera.loop(dt, &self.input);
+        try self.renderer.draw(&self.input, &self.camera);
 
-pub fn handleEvent(self: *Self, ev: sdl.Event) !void {
-    switch (ev) {
-        .window => |wev| switch (wev.type) {
-            .resized => self.resize(),
-            else => {},
-        },
-        .mouse_motion => |mev| self.camera.onMouseMotion(mev.delta_x, mev.delta_y),
-        else => {},
+        self.time = time;
+        self.input.loopPost();
     }
-    self.input.handleEvent(ev);
 }
 
 fn resize(self: *Self) void {

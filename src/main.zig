@@ -1,11 +1,12 @@
 const std = @import("std");
 const gl = @import("zgl");
 
-const App = @import("app.zig");
+//const App = @import("app.zig");
+const Engine = @import("engine.zig");
 
 pub fn main() !void {
     var alloc = std.heap.DebugAllocator(.{}).init;
-    var app = try App.init(alloc.allocator());
-    defer app.deinit();
-    try app.run();
+    var engine = try Engine.init(alloc.allocator());
+    defer engine.deinit();
+    try engine.run();
 }
