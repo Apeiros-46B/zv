@@ -28,9 +28,9 @@ pkgs.mkShell rec {
 	];
 
 	shellHook = ''
+		export DISPLAY=':0'
 		export LD_LIBRARY_PATH="/run/opengl-driver/lib:/run/opengl-driver-32/lib:${builtins.toString (pkgs.lib.makeLibraryPath buildInputs)}:$LD_LIBRARY_PATH"
 	'';
 
 	SHADERC_LIB_DIR = "${pkgs.shaderc.lib}/lib";
-	DISPLAY = ":0";
 }
