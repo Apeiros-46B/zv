@@ -1,7 +1,6 @@
 const std = @import("std");
 const gl = @import("zgl");
 
-//const App = @import("app.zig");
 const Engine = @import("engine.zig");
 
 pub fn main() !void {

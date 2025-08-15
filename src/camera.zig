@@ -43,7 +43,7 @@ pub fn init(window: sdl.Window) Self {
     self.yaw = zlm.toRadians(-90.0);
 
     self.dir = zlm.vec3(0, 0, -1);
-    self.right = zlm.vec3(-1, 0, 0);
+    self.right = zlm.vec3(1, 0, 0);
     self.view = zlm.Mat4.identity;
     self.proj = zlm.Mat4.identity;
 

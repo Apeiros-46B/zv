@@ -36,9 +36,42 @@ pub fn init(alloc: std.mem.Allocator, window: sdl.Window) !Self {
     log.print(.debug, "renderer", "extensions loaded", .{});
 
     const verts = [_]f32{
-        -0.5, -0.5, 0.0, 1.0, 0.0, 0.0,
-        0.5,  -0.5, 0.0, 0.0, 1.0, 0.0,
-        0.0,  0.5,  0.0, 0.0, 0.0, 1.0,
+        -1.0, -1.0, -1.0, // triangle 1 : begin
+        -1.0, -1.0, 1.0,
+        -1.0, 1.0, 1.0, // triangle 1 : end
+        1.0,  1.0,  -1.0, // triangle 2 : begin
+        -1.0, -1.0, -1.0,
+        -1.0, 1.0,  -1.0, // triangle 2 : end
+        1.0,  -1.0, 1.0,
+        -1.0, -1.0, -1.0,
+        1.0,  -1.0, -1.0,
+        1.0,  1.0,  -1.0,
+        1.0,  -1.0, -1.0,
+        -1.0, -1.0, -1.0,
+        -1.0, -1.0, -1.0,
+        -1.0, 1.0,  1.0,
+        -1.0, 1.0,  -1.0,
+        1.0,  -1.0, 1.0,
+        -1.0, -1.0, 1.0,
+        -1.0, -1.0, -1.0,
+        -1.0, 1.0,  1.0,
+        -1.0, -1.0, 1.0,
+        1.0,  -1.0, 1.0,
+        1.0,  1.0,  1.0,
+        1.0,  -1.0, -1.0,
+        1.0,  1.0,  -1.0,
+        1.0,  -1.0, -1.0,
+        1.0,  1.0,  1.0,
+        1.0,  -1.0, 1.0,
+        1.0,  1.0,  1.0,
+        1.0,  1.0,  -1.0,
+        -1.0, 1.0,  -1.0,
+        1.0,  1.0,  1.0,
+        -1.0, 1.0,  -1.0,
+        -1.0, 1.0,  1.0,
+        1.0,  1.0,  1.0,
+        -1.0, 1.0,  1.0,
+        1.0,  -1.0, 1.0,
     };
 
     self.vao = gl.VertexArray.create();
@@ -52,10 +85,11 @@ pub fn init(alloc: std.mem.Allocator, window: sdl.Window) !Self {
     self.vao.bind();
     self.vbo.bind(.array_buffer);
     self.vbo.data(f32, &verts, .static_draw);
-    gl.vertexAttribPointer(0, 3, .float, false, 6 * @sizeOf(f32), 0);
+    gl.vertexAttribPointer(0, 3, .float, false, 3 * @sizeOf(f32), 0);
     gl.enableVertexAttribArray(0);
-    gl.vertexAttribPointer(1, 3, .float, false, 6 * @sizeOf(f32), 3 * @sizeOf(f32));
-    gl.enableVertexAttribArray(1);
+
+    gl.enable(.depth_test);
+    gl.depthFunc(.less);
 
     self.pass = try ShaderPass.init(alloc);
 
@@ -79,7 +113,7 @@ pub fn draw(self: *Self, input: *const InputState, camera: *const Camera) !void 
     }
 
     gl.clearColor(1.0, 1.0, 1.0, 1.0);
-    gl.clear(.{ .color = true });
+    gl.clear(.{ .color = true, .depth = true });
 
     self.pass.use();
     self.vao.bind();
@@ -89,7 +123,7 @@ pub fn draw(self: *Self, input: *const InputState, camera: *const Camera) !void 
     self.pass.setMat4("view", camera.view);
     self.pass.setMat4("proj", camera.proj);
 
-    gl.drawArrays(.triangles, 0, 3);
+    gl.drawArrays(.triangles, 0, 12 * 3);
 
     sdl.gl.swapWindow(self.window);
 }
