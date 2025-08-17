@@ -4,115 +4,103 @@
 
 const std = @import("std");
 
-const Mesh = packed struct {
-    verts: std.ArrayList(Vertex),
-    idxs: [12]u4,
-};
+const util = @import("../util.zig");
+const Self = @This();
 
-const Vertex = packed struct {
-    x: u4,
-    y: u4,
-    z: u4,
-    face: Face,
-};
+positions: std.ArrayList(f32),
+faces: std.ArrayList(Face),
 
-const Face = enum(u3) {
-    up,
-    down,
-    north,
-    east,
-    south,
-    west,
-};
-
-fn isVoxelSet(bitmask: [64]u64, x: usize, y: usize, z: usize) bool {
-    const index: usize = x + y * 16 + z * 256;
-    const u64_index = index >> 6;
-    const bit_index = @as(u6, @truncate(index));
-    return (bitmask[u64_index] >> bit_index) & 1 != 0;
+pub fn init(alloc: std.mem.Allocator) Self {
+    var self: Self = undefined;
+    self.positions = std.ArrayList(f32).init(alloc);
+    self.faces = std.ArrayList(Face).init(alloc);
+    return self;
 }
 
-pub fn generateVoxelMesh(list: *std.ArrayList(f32), bitmask: [64]u64) !void {
+pub fn deinit(self: Self) void {
+    self.positions.deinit();
+    self.faces.deinit();
+}
+
+pub fn get_face_positions(self: *Self) []const f32 {
+    return self.positions.items;
+}
+
+pub fn get_face_normals(self: *Self) []const u32 {
+    return @ptrCast(self.faces.items);
+}
+
+pub fn size(self: *Self) usize {
+    return self.faces.items.len;
+}
+
+fn add_face(self: *Self, x: usize, y: usize, z: usize, face: Face) !void {
+    try self.positions.append(util.i2f(x));
+    try self.positions.append(util.i2f(y));
+    try self.positions.append(util.i2f(z));
+    try self.faces.append(face);
+}
+
+pub const Face = enum(u32) {
+    xp = 0,
+    xn = 1,
+    yp = 2,
+    yn = 3,
+    zp = 4,
+    zn = 5,
+};
+
+pub fn generate(self: *Self, chunk: u4096) !void {
     const FaceDef = struct {
         dx: i32,
         dy: i32,
         dz: i32,
-        corners: [4][3]f32,
+        face: Face,
     };
 
     const faces = [6]FaceDef{
-        .{ // -X (left)
-            .dx = -1,
-            .dy = 0,
-            .dz = 0,
-            .corners = [4][3]f32{
-                .{ 0.0, 0.0, 0.0 },
-                .{ 0.0, 0.0, 1.0 },
-                .{ 0.0, 1.0, 1.0 },
-                .{ 0.0, 1.0, 0.0 },
-            },
-        },
-        .{ // +X (right)
+        .{
             .dx = 1,
             .dy = 0,
             .dz = 0,
-            .corners = [4][3]f32{
-                .{ 1.0, 0.0, 0.0 },
-                .{ 1.0, 0.0, 1.0 },
-                .{ 1.0, 1.0, 1.0 },
-                .{ 1.0, 1.0, 0.0 },
-            },
+            .face = .xp,
         },
-        .{ // -Y (bottom)
-            .dx = 0,
-            .dy = -1,
+        .{
+            .dx = -1,
+            .dy = 0,
             .dz = 0,
-            .corners = [4][3]f32{
-                .{ 0.0, 0.0, 0.0 },
-                .{ 0.0, 0.0, 1.0 },
-                .{ 1.0, 0.0, 1.0 },
-                .{ 1.0, 0.0, 0.0 },
-            },
+            .face = .xn,
         },
-        .{ // +Y (top)
+        .{
             .dx = 0,
             .dy = 1,
             .dz = 0,
-            .corners = [4][3]f32{
-                .{ 0.0, 1.0, 0.0 },
-                .{ 0.0, 1.0, 1.0 },
-                .{ 1.0, 1.0, 1.0 },
-                .{ 1.0, 1.0, 0.0 },
-            },
+            .face = .yp,
         },
-        .{ // -Z (back)
+        .{
             .dx = 0,
-            .dy = 0,
-            .dz = -1,
-            .corners = [4][3]f32{
-                .{ 0.0, 0.0, 0.0 },
-                .{ 1.0, 0.0, 0.0 },
-                .{ 1.0, 1.0, 0.0 },
-                .{ 0.0, 1.0, 0.0 },
-            },
+            .dy = -1,
+            .dz = 0,
+            .face = .yn,
         },
-        .{ // +Z (front)
+        .{
             .dx = 0,
             .dy = 0,
             .dz = 1,
-            .corners = [4][3]f32{
-                .{ 0.0, 0.0, 1.0 },
-                .{ 0.0, 1.0, 1.0 },
-                .{ 1.0, 1.0, 1.0 },
-                .{ 1.0, 0.0, 1.0 },
-            },
+            .face = .zp,
+        },
+        .{
+            .dx = 0,
+            .dy = 0,
+            .dz = -1,
+            .face = .zn,
         },
     };
 
     for (0..16) |x| {
         for (0..16) |y| {
             for (0..16) |z| {
-                if (!isVoxelSet(bitmask, x, y, z)) continue;
+                if (!isVoxelSet(chunk, x, y, z)) continue;
 
                 for (faces) |face| {
                     const nx = @as(i32, @intCast(x)) + face.dx;
@@ -120,42 +108,19 @@ pub fn generateVoxelMesh(list: *std.ArrayList(f32), bitmask: [64]u64) !void {
                     const nz = @as(i32, @intCast(z)) + face.dz;
 
                     if (nx >= 0 and nx < 16 and ny >= 0 and ny < 16 and nz >= 0 and nz < 16) {
-                        if (isVoxelSet(bitmask, @as(usize, @intCast(nx)), @as(usize, @intCast(ny)), @as(usize, @intCast(nz)))) {
+                        if (isVoxelSet(chunk, @as(usize, @intCast(nx)), @as(usize, @intCast(ny)), @as(usize, @intCast(nz)))) {
                             continue;
                         }
                     }
 
-                    const corners = face.corners;
-                    const v0 = .{
-                        @as(f32, @floatFromInt(x)) + corners[0][0],
-                        @as(f32, @floatFromInt(y)) + corners[0][1],
-                        @as(f32, @floatFromInt(z)) + corners[0][2],
-                    };
-                    const v1 = .{
-                        @as(f32, @floatFromInt(x)) + corners[1][0],
-                        @as(f32, @floatFromInt(y)) + corners[1][1],
-                        @as(f32, @floatFromInt(z)) + corners[1][2],
-                    };
-                    const v2 = .{
-                        @as(f32, @floatFromInt(x)) + corners[2][0],
-                        @as(f32, @floatFromInt(y)) + corners[2][1],
-                        @as(f32, @floatFromInt(z)) + corners[2][2],
-                    };
-                    const v3 = .{
-                        @as(f32, @floatFromInt(x)) + corners[3][0],
-                        @as(f32, @floatFromInt(y)) + corners[3][1],
-                        @as(f32, @floatFromInt(z)) + corners[3][2],
-                    };
-
-                    try list.appendSlice(&v0);
-                    try list.appendSlice(&v1);
-                    try list.appendSlice(&v2);
-
-                    try list.appendSlice(&v0);
-                    try list.appendSlice(&v2);
-                    try list.appendSlice(&v3);
+                    try self.add_face(x, y, z, face.face);
                 }
             }
         }
     }
+}
+
+fn isVoxelSet(mask: u4096, x: usize, y: usize, z: usize) bool {
+    const idx: usize = x + y * 16 + z * 256;
+    return (mask >> @intCast(idx)) & 1 != 0;
 }

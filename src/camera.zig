@@ -91,6 +91,12 @@ pub fn loop(self: *Self, dt: f32, input: *const InputState) void {
     if (input.isJustPressed(.capture_cursor)) {
         self.toggleCaptureCursor();
     }
+    if (input.isJustPressed(.increase_speed)) {
+        self.move_speed = std.math.clamp(self.move_speed + 1, 0, 20);
+    }
+    if (input.isJustPressed(.decrease_speed)) {
+        self.move_speed = std.math.clamp(self.move_speed - 1, 0, 20);
+    }
 
     if (moved) {
         self.recalcView();

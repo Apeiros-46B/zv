@@ -1,7 +1,6 @@
 #version 410
 
-in vec3 brick_coord;
-flat in vec3 brick_coord_i;
+in vec3 color;
 out vec4 frag_color;
 
 uniform vec2 scr_size;
@@ -26,11 +25,12 @@ Ray getPrimaryRay(vec3 pos) {
 
 void main() {
 	// TODO: need to add brick-local coordinates as a vertex attribute instead of using this broken fract setup
-	float x = brick_coord.x >= 0.999 ? 1.0 : fract(brick_coord.x + EPSILON);
-	float y = brick_coord.y >= 0.999 ? 1.0 : fract(brick_coord.y + EPSILON);
-	float z = brick_coord.z >= 0.999 ? 1.0 : fract(brick_coord.z + EPSILON);
-	vec3 f = (brick_coord_i) * 8.0;
-	// vec3 f = vec3(x, y, z) * 8.0;
-	// vec3 g = floor(f+EPSILON) / 8.0;
-	frag_color = vec4(f / 8.0, 1.0);
+	// float x = brick_coord.x >= 0.999 ? 1.0 : fract(brick_coord.x + EPSILON);
+	// float y = brick_coord.y >= 0.999 ? 1.0 : fract(brick_coord.y + EPSILON);
+	// float z = brick_coord.z >= 0.999 ? 1.0 : fract(brick_coord.z + EPSILON);
+	// vec3 f = (brick_coord_i) * 8.0;
+	// // vec3 f = vec3(x, y, z) * 8.0;
+	// // vec3 g = floor(f+EPSILON) / 8.0;
+	// frag_color = vec4(f / 8.0, 1.0);
+	frag_color = vec4(color, 1.0);
 }

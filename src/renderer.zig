@@ -5,44 +5,23 @@ const zlm = @import("zlm");
 
 const log = @import("log.zig");
 const util = @import("util.zig");
-const meshing = @import("voxels/mesh.zig");
+const Mesh = @import("voxels/mesh.zig");
 const Camera = @import("camera.zig");
 const InputState = @import("input.zig");
 const Self = @This();
 
 alloc: std.mem.Allocator,
 window: sdl.Window,
-mesh: std.ArrayList(f32),
+chunk_mesh: Mesh,
 
 gl_ctx: sdl.gl.Context,
 vao: gl.VertexArray,
-vbo: gl.Buffer,
+pos_vbo: gl.Buffer, // for instance positions
+face_vbo: gl.Buffer, // for instance normals
+inst_vbo: gl.Buffer, // for instance base
 
 scr_size: zlm.Vec2,
 pass: ShaderPass,
-
-fn createSingleVoxelBitmask(x: usize, y: usize, z: usize) [64]u64 {
-    const index = x + y * 16 + z * 256;
-    const u64_index = index >> 6;
-    const bit_index = @as(u6, @truncate(index));
-    var bitmask = [_]u64{0} ** 64;
-    bitmask[u64_index] = @as(u64, 1) << bit_index;
-    return bitmask;
-}
-
-fn coordsToBitmask(coords: []const [3]usize) [64]u64 {
-    var bitmask = [_]u64{0} ** 64;
-    for (coords) |pos| {
-        const x = pos[0];
-        const y = pos[1];
-        const z = pos[2];
-        const index = x + y * 16 + z * 256;
-        const u64_index = index >> 6;
-        const bit_index = @as(u6, @truncate(index));
-        bitmask[u64_index] |= @as(u64, 1) << bit_index;
-    }
-    return bitmask;
-}
 
 fn getProcAddressWrapper(comptime _: type, sym: [:0]const u8) ?*const anyopaque {
     return sdl.gl.getProcAddress(sym);
@@ -53,8 +32,8 @@ pub fn init(alloc: std.mem.Allocator, window: sdl.Window) !Self {
 
     self.alloc = alloc;
     self.window = window;
-    self.mesh = std.ArrayList(f32).init(alloc);
-    errdefer self.mesh.deinit();
+    self.chunk_mesh = Mesh.init(alloc);
+    errdefer self.chunk_mesh.deinit();
 
     var list = std.ArrayList([3]usize).init(alloc);
     defer list.deinit();
@@ -63,18 +42,21 @@ pub fn init(alloc: std.mem.Allocator, window: sdl.Window) !Self {
             try list.append(.{ x * 2, 0, z * 2 });
         }
     }
-    try meshing.generateVoxelMesh(
-        &self.mesh,
-        coordsToBitmask(list.items),
-    );
-    // log.print(.debug, "renderer", "mesh: {any}", .{self.mesh.items});
+    var mask: u4096 = 0b1010101010101010;
+    mask = mask | mask << 32;
+    mask = mask | mask << 64;
+    mask = mask | mask << 128;
+    mask = mask | mask << 512;
+    mask = mask | mask << 1024;
+    mask = mask | mask << 2048;
+    try self.chunk_mesh.generate(mask);
 
     self.gl_ctx = try sdl.gl.createContext(window);
     errdefer self.gl_ctx.delete();
     try self.gl_ctx.makeCurrent(window);
     log.print(.debug, "renderer", "context loaded", .{});
 
-    try sdl.gl.setSwapInterval(.immediate);
+    try sdl.gl.setSwapInterval(.adaptive_vsync);
 
     try gl.loadExtensions(void, getProcAddressWrapper);
     log.print(.debug, "renderer", "extensions loaded", .{});
@@ -83,15 +65,41 @@ pub fn init(alloc: std.mem.Allocator, window: sdl.Window) !Self {
     errdefer self.vao.delete();
     log.print(.debug, "renderer", "vao created", .{});
 
-    self.vbo = gl.Buffer.create();
-    errdefer self.vbo.delete();
+    self.pos_vbo = gl.Buffer.create();
+    errdefer self.pos_vbo.delete();
     log.print(.debug, "renderer", "vbo created", .{});
 
+    self.face_vbo = gl.Buffer.create();
+    errdefer self.face_vbo.delete();
+    log.print(.debug, "renderer", "normal_vbo created", .{});
+
+    self.inst_vbo = gl.Buffer.create();
+    errdefer self.inst_vbo.delete();
+    log.print(.debug, "renderer", "inst_vbo created", .{});
+
     self.vao.bind();
-    self.vbo.bind(.array_buffer);
-    self.vbo.data(f32, self.mesh.items, .static_draw);
+
+    self.inst_vbo.bind(.array_buffer);
+    self.inst_vbo.data(f32, &[_]f32{
+        0.0, 0.0, 0.0,
+        1.0, 0.0, 0.0,
+        0.0, 0.0, 1.0,
+        1.0, 0.0, 1.0,
+    }, .static_draw);
     gl.vertexAttribPointer(0, 3, .float, false, 3 * @sizeOf(f32), 0);
     gl.enableVertexAttribArray(0);
+
+    self.pos_vbo.bind(.array_buffer);
+    self.pos_vbo.data(f32, self.chunk_mesh.get_face_positions(), .static_draw);
+    gl.vertexAttribPointer(1, 3, .float, false, 3 * @sizeOf(f32), 0);
+    gl.vertexAttribDivisor(1, 1);
+    gl.enableVertexAttribArray(1);
+
+    self.face_vbo.bind(.array_buffer);
+    self.face_vbo.data(u32, self.chunk_mesh.get_face_normals(), .static_draw);
+    gl.vertexAttribIPointer(2, 1, .unsigned_int, @sizeOf(u32), 0);
+    gl.vertexAttribDivisor(2, 1);
+    gl.enableVertexAttribArray(2);
 
     gl.enable(.depth_test);
     gl.depthFunc(.less);
@@ -104,9 +112,11 @@ pub fn init(alloc: std.mem.Allocator, window: sdl.Window) !Self {
 }
 
 pub fn deinit(self: Self) void {
-    self.mesh.deinit();
+    self.chunk_mesh.deinit();
     self.pass.deinit();
-    self.vbo.delete();
+    self.inst_vbo.delete();
+    self.face_vbo.delete();
+    self.pos_vbo.delete();
     self.vao.delete();
     self.gl_ctx.delete();
 
@@ -134,7 +144,7 @@ pub fn draw(self: *Self, input: *const InputState, camera: *const Camera) !void 
     self.pass.setMat4("inv_view", camera.inv_view);
     self.pass.setMat4("inv_proj", camera.inv_proj);
 
-    gl.drawArrays(.triangles, 0, self.mesh.items.len);
+    gl.drawArraysInstanced(.triangle_strip, 0, 4, self.chunk_mesh.size());
 
     sdl.gl.swapWindow(self.window);
 }
