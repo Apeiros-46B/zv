@@ -4,18 +4,45 @@ const gl = @import("zgl");
 const zlm = @import("zlm");
 
 const log = @import("log.zig");
+const util = @import("util.zig");
+const meshing = @import("voxels/mesh.zig");
 const Camera = @import("camera.zig");
 const InputState = @import("input.zig");
 const Self = @This();
 
 alloc: std.mem.Allocator,
 window: sdl.Window,
+mesh: std.ArrayList(f32),
 
 gl_ctx: sdl.gl.Context,
 vao: gl.VertexArray,
 vbo: gl.Buffer,
 
+scr_size: zlm.Vec2,
 pass: ShaderPass,
+
+fn createSingleVoxelBitmask(x: usize, y: usize, z: usize) [64]u64 {
+    const index = x + y * 16 + z * 256;
+    const u64_index = index >> 6;
+    const bit_index = @as(u6, @truncate(index));
+    var bitmask = [_]u64{0} ** 64;
+    bitmask[u64_index] = @as(u64, 1) << bit_index;
+    return bitmask;
+}
+
+fn coordsToBitmask(coords: []const [3]usize) [64]u64 {
+    var bitmask = [_]u64{0} ** 64;
+    for (coords) |pos| {
+        const x = pos[0];
+        const y = pos[1];
+        const z = pos[2];
+        const index = x + y * 16 + z * 256;
+        const u64_index = index >> 6;
+        const bit_index = @as(u6, @truncate(index));
+        bitmask[u64_index] |= @as(u64, 1) << bit_index;
+    }
+    return bitmask;
+}
 
 fn getProcAddressWrapper(comptime _: type, sym: [:0]const u8) ?*const anyopaque {
     return sdl.gl.getProcAddress(sym);
@@ -26,53 +53,31 @@ pub fn init(alloc: std.mem.Allocator, window: sdl.Window) !Self {
 
     self.alloc = alloc;
     self.window = window;
+    self.mesh = std.ArrayList(f32).init(alloc);
+    errdefer self.mesh.deinit();
+
+    var list = std.ArrayList([3]usize).init(alloc);
+    defer list.deinit();
+    for (0..5) |x| {
+        for (0..5) |z| {
+            try list.append(.{ x * 2, 0, z * 2 });
+        }
+    }
+    try meshing.generateVoxelMesh(
+        &self.mesh,
+        coordsToBitmask(list.items),
+    );
+    // log.print(.debug, "renderer", "mesh: {any}", .{self.mesh.items});
 
     self.gl_ctx = try sdl.gl.createContext(window);
     errdefer self.gl_ctx.delete();
     try self.gl_ctx.makeCurrent(window);
     log.print(.debug, "renderer", "context loaded", .{});
 
+    try sdl.gl.setSwapInterval(.immediate);
+
     try gl.loadExtensions(void, getProcAddressWrapper);
     log.print(.debug, "renderer", "extensions loaded", .{});
-
-    const verts = [_]f32{
-        -1.0, -1.0, -1.0, // triangle 1 : begin
-        -1.0, -1.0, 1.0,
-        -1.0, 1.0, 1.0, // triangle 1 : end
-        1.0,  1.0,  -1.0, // triangle 2 : begin
-        -1.0, -1.0, -1.0,
-        -1.0, 1.0,  -1.0, // triangle 2 : end
-        1.0,  -1.0, 1.0,
-        -1.0, -1.0, -1.0,
-        1.0,  -1.0, -1.0,
-        1.0,  1.0,  -1.0,
-        1.0,  -1.0, -1.0,
-        -1.0, -1.0, -1.0,
-        -1.0, -1.0, -1.0,
-        -1.0, 1.0,  1.0,
-        -1.0, 1.0,  -1.0,
-        1.0,  -1.0, 1.0,
-        -1.0, -1.0, 1.0,
-        -1.0, -1.0, -1.0,
-        -1.0, 1.0,  1.0,
-        -1.0, -1.0, 1.0,
-        1.0,  -1.0, 1.0,
-        1.0,  1.0,  1.0,
-        1.0,  -1.0, -1.0,
-        1.0,  1.0,  -1.0,
-        1.0,  -1.0, -1.0,
-        1.0,  1.0,  1.0,
-        1.0,  -1.0, 1.0,
-        1.0,  1.0,  1.0,
-        1.0,  1.0,  -1.0,
-        -1.0, 1.0,  -1.0,
-        1.0,  1.0,  1.0,
-        -1.0, 1.0,  -1.0,
-        -1.0, 1.0,  1.0,
-        1.0,  1.0,  1.0,
-        -1.0, 1.0,  1.0,
-        1.0,  -1.0, 1.0,
-    };
 
     self.vao = gl.VertexArray.create();
     errdefer self.vao.delete();
@@ -84,7 +89,7 @@ pub fn init(alloc: std.mem.Allocator, window: sdl.Window) !Self {
 
     self.vao.bind();
     self.vbo.bind(.array_buffer);
-    self.vbo.data(f32, &verts, .static_draw);
+    self.vbo.data(f32, self.mesh.items, .static_draw);
     gl.vertexAttribPointer(0, 3, .float, false, 3 * @sizeOf(f32), 0);
     gl.enableVertexAttribArray(0);
 
@@ -99,6 +104,7 @@ pub fn init(alloc: std.mem.Allocator, window: sdl.Window) !Self {
 }
 
 pub fn deinit(self: Self) void {
+    self.mesh.deinit();
     self.pass.deinit();
     self.vbo.delete();
     self.vao.delete();
@@ -112,7 +118,8 @@ pub fn draw(self: *Self, input: *const InputState, camera: *const Camera) !void 
         self.pass.recompile();
     }
 
-    gl.clearColor(1.0, 1.0, 1.0, 1.0);
+    // gl.clearColor(1.0, 1.0, 1.0, 1.0);
+    gl.clearColor(0.0, 0.0, 0.0, 1.0);
     gl.clear(.{ .color = true, .depth = true });
 
     self.pass.use();
@@ -123,7 +130,11 @@ pub fn draw(self: *Self, input: *const InputState, camera: *const Camera) !void 
     self.pass.setMat4("view", camera.view);
     self.pass.setMat4("proj", camera.proj);
 
-    gl.drawArrays(.triangles, 0, 12 * 3);
+    self.pass.setVec2("scr_size", self.scr_size);
+    self.pass.setMat4("inv_view", camera.inv_view);
+    self.pass.setMat4("inv_proj", camera.inv_proj);
+
+    gl.drawArrays(.triangles, 0, self.mesh.items.len);
 
     sdl.gl.swapWindow(self.window);
 }
@@ -131,6 +142,7 @@ pub fn draw(self: *Self, input: *const InputState, camera: *const Camera) !void 
 pub fn resize(self: *Self) void {
     const size = self.window.getSize();
     gl.viewport(0, 0, @intCast(size.width), @intCast(size.height));
+    self.scr_size = zlm.vec2(util.i2f(size.width), util.i2f(size.height));
 }
 
 const ShaderPass = struct {
@@ -177,12 +189,26 @@ const ShaderPass = struct {
     }
 
     fn setMat4(self: *ShaderPass, name: [:0]const u8, value: zlm.Mat4) void {
+        const location = self.getLocation(name) orelse return;
+        self.prg.uniformMatrix4(location, false, &[_][4][4]f32{value.fields});
+    }
+
+    fn setVec2(self: *ShaderPass, name: [:0]const u8, value: zlm.Vec2) void {
+        const location = self.getLocation(name) orelse return;
+        self.prg.uniform2f(location, value.x, value.y);
+    }
+
+    fn setVec3(self: *ShaderPass, name: [:0]const u8, value: zlm.Vec3) void {
+        const location = self.getLocation(name) orelse return;
+        self.prg.uniform3f(location, value.x, value.y, value.z);
+    }
+
+    fn getLocation(self: *ShaderPass, name: [:0]const u8) ?u32 {
         const location = gl.getUniformLocation(self.prg, name);
         if (location == null) {
-            log.print(.warn, "renderer", "uniform '{s}' not found", .{name});
-            return;
+            // log.print(.warn, "renderer", "uniform '{s}' not found", .{name});
         }
-        self.prg.uniformMatrix4(location, false, &[_][4][4]f32{value.fields});
+        return location;
     }
 
     fn compileShader(self: *ShaderPass, ty: gl.ShaderType, comptime name: []const u8) !void {

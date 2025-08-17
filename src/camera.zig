@@ -9,12 +9,16 @@ const Self = @This();
 
 window: sdl.Window,
 capture_cursor: bool,
+should_recalc_rays: bool,
 
 move_speed: f32,
 rot_speed: f32,
 fov: f32,
+near_clip: f32,
+far_clip: f32,
 
 // modified by input
+aspect_ratio: f32,
 pos: zlm.Vec3,
 pitch: f32, // radians
 yaw: f32,
@@ -24,6 +28,8 @@ dir: zlm.Vec3,
 right: zlm.Vec3,
 view: zlm.Mat4,
 proj: zlm.Mat4,
+inv_view: zlm.Mat4,
+inv_proj: zlm.Mat4,
 
 last_dt: f32,
 
@@ -37,6 +43,8 @@ pub fn init(window: sdl.Window) Self {
     self.move_speed = 2.5;
     self.rot_speed = 5;
     self.fov = zlm.toRadians(45.0);
+    self.near_clip = 0.01;
+    self.far_clip = 100.0;
 
     self.pos = zlm.vec3(0, 0, 2);
     self.pitch = 0.0;
@@ -54,30 +62,39 @@ pub fn init(window: sdl.Window) Self {
 
 pub fn loop(self: *Self, dt: f32, input: *const InputState) void {
     const move_fac = self.move_speed * dt;
+    var moved = false;
 
     if (input.isPressed(.move_fwd)) {
         self.pos = self.pos.add(self.dir.scale(move_fac));
+        moved = true;
     }
     if (input.isPressed(.move_back)) {
         self.pos = self.pos.sub(self.dir.scale(move_fac));
+        moved = true;
     }
     if (input.isPressed(.move_left)) {
         self.pos = self.pos.sub(self.right.scale(move_fac));
+        moved = true;
     }
     if (input.isPressed(.move_right)) {
         self.pos = self.pos.add(self.right.scale(move_fac));
+        moved = true;
     }
     if (input.isPressed(.move_up)) {
         self.pos = self.pos.add(UP.scale(move_fac));
+        moved = true;
     }
     if (input.isPressed(.move_down)) {
         self.pos = self.pos.sub(UP.scale(move_fac));
+        moved = true;
     }
     if (input.isJustPressed(.capture_cursor)) {
         self.toggleCaptureCursor();
     }
 
-    self.view = zlm.Mat4.createLook(self.pos, self.dir, UP);
+    if (moved) {
+        self.recalcView();
+    }
     self.last_dt = dt;
 }
 
@@ -97,11 +114,14 @@ pub fn onMouseMotion(self: *Self, dx: i32, dy: i32) void {
     self.dir.y = std.math.sin(self.pitch);
     self.dir.z = std.math.sin(self.yaw) * std.math.cos(self.pitch);
     self.right = UP.cross(self.dir.neg()).normalize();
+
+    self.recalcView();
 }
 
 pub fn resize(self: *Self) void {
     const size = self.window.getSize();
-    self.proj = zlm.Mat4.createPerspective(self.fov, util.ratio(size.width, size.height), 0.1, 100.0);
+    self.aspect_ratio = util.ratio(size.width, size.height);
+    self.recalcProj();
 }
 
 fn toggleCaptureCursor(self: *Self) void {
@@ -115,4 +135,21 @@ fn toggleCaptureCursor(self: *Self) void {
     if (status != 0) {
         log.print(.err, "camera", "failed to toggle cursor capture", .{});
     }
+}
+
+fn recalcView(self: *Self) void {
+    self.view = zlm.Mat4.createLook(self.pos, self.dir, UP);
+    self.inv_view = self.view.invert().?;
+    self.should_recalc_rays = true;
+}
+
+fn recalcProj(self: *Self) void {
+    self.proj = zlm.Mat4.createPerspective(
+        self.fov,
+        self.aspect_ratio,
+        self.near_clip,
+        self.far_clip,
+    );
+    self.inv_proj = self.proj.invert().?;
+    self.should_recalc_rays = true;
 }
