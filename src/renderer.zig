@@ -40,14 +40,13 @@ pub fn init(alloc: std.mem.Allocator, window: sdl.Window) !Self {
             try list.append(.{ x * 2, 0, z * 2 });
         }
     }
-    const mask: u4096 = 0b1010101010101010;
-    // var mask: u4096 = 0b1010101010101010;
-    // mask = mask | mask << 32;
-    // mask = mask | mask << 64;
-    // mask = mask | mask << 128;
-    // mask = mask | mask << 512;
-    // mask = mask | mask << 1024;
-    // mask = mask | mask << 2048;
+    var mask: u4096 = 0b1010101010101010;
+    mask = mask | mask << 32;
+    mask = mask | mask << 64;
+    mask = mask | mask << 128;
+    mask = mask | mask << 512;
+    mask = mask | mask << 1024;
+    mask = mask | mask << 2048;
     try self.mesh.generate(mask);
 
     self.gl_ctx = try sdl.gl.createContext(window);
@@ -113,19 +112,7 @@ pub fn draw(self: *Self, input: *const InputState, camera: *const Camera) !void 
     self.pass.setMat4("inv_view", camera.inv_view);
     self.pass.setMat4("inv_proj", camera.inv_proj);
 
-    gl.drawArrays(.triangles, 0, self.mesh.size() * 6);
-
-    // const vert = Mesh.PackedFace{
-    //     .x = 1,
-    //     .y = 2,
-    //     .z = 3,
-    //     .face = .zp,
-    // };
-    // const x = @as(u32, @bitCast(vert)) & 0xFF;
-    // const y = (@as(u32, @bitCast(vert)) >> 8) & 0xFF;
-    // const z = (@as(u32, @bitCast(vert)) >> 16) & 0xFF;
-    // const f = (@as(u32, @bitCast(vert)) >> 24) & 0xFF;
-    // log.print(.debug, "renderer", "x{} y{} z{} f{}", .{ x, y, z, f });
+    gl.drawArrays(.triangles, 0, self.mesh.size() * 3);
 
     sdl.gl.swapWindow(self.window);
 }

@@ -1,6 +1,7 @@
 #version 410
 
 in vec3 color;
+in vec2 uv;
 out vec4 frag_color;
 
 uniform vec2 scr_size;
@@ -24,6 +25,10 @@ Ray getPrimaryRay(vec3 pos) {
 }
 
 void main() {
+	if (uv.x > 1.0 || uv.y > 1.0) {
+		discard;
+	}
+
 	// TODO: need to add brick-local coordinates as a vertex attribute instead of using this broken fract setup
 	// float x = brick_coord.x >= 0.999 ? 1.0 : fract(brick_coord.x + EPSILON);
 	// float y = brick_coord.y >= 0.999 ? 1.0 : fract(brick_coord.y + EPSILON);
