@@ -53,10 +53,10 @@ bool getVoxel(ivec3 pos) {
 		}
 		return pos.x % 2 == 0 && pos.y % 2 == 0 && pos.z % 2 == 0;
 	} else if (test == 2) { // half height
-		// OBSERVATIONS: around 1-2ms. this is similar to the worst case on a real landscape where the player looks directly down at the ground from high up
+		// OBSERVATIONS: around 1-2ms. this is similar to the worst case on a real landscape where the player looks directly down at the ground from high up, only on a smaller scale
 		return pos.y > 4;
 	} else if (test == 3) { // empty
-		// OBSERVATIONS: around 3ms. need a way to skip empty bricks without marching in them
+		// OBSERVATIONS: around 3ms. this should not happen in a real situation because empty bricks will not be meshed.
 		return false;
 	} else if (test == 4) { // full
 		// OBSERVATIONS: around 0.5ms. this is the best case
