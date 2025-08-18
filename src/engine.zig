@@ -31,7 +31,7 @@ pub fn init(alloc: std.mem.Allocator) !Self {
 
     try sdl.gl.setAttribute(.{ .context_profile_mask = sdl.gl.Profile.core });
     try sdl.gl.setAttribute(.{ .context_major_version = 4 });
-    try sdl.gl.setAttribute(.{ .context_minor_version = 1 });
+    try sdl.gl.setAttribute(.{ .context_minor_version = 3 });
 
     self.window = try sdl.createWindow(
         "Hello world!",

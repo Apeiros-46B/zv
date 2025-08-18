@@ -33,4 +33,5 @@ void main() {
 	// // vec3 g = floor(f+EPSILON) / 8.0;
 	// frag_color = vec4(f / 8.0, 1.0);
 	frag_color = vec4(color, 1.0);
+	// frag_color = vec4(1.0, 1.0, 1.0, 1.0);
 }

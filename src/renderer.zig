@@ -12,13 +12,11 @@ const Self = @This();
 
 alloc: std.mem.Allocator,
 window: sdl.Window,
-chunk_mesh: Mesh,
+mesh: Mesh,
 
 gl_ctx: sdl.gl.Context,
 vao: gl.VertexArray,
-pos_vbo: gl.Buffer, // for instance positions
-face_vbo: gl.Buffer, // for instance normals
-inst_vbo: gl.Buffer, // for instance base
+ssbo: gl.Buffer,
 
 scr_size: zlm.Vec2,
 pass: ShaderPass,
@@ -32,8 +30,8 @@ pub fn init(alloc: std.mem.Allocator, window: sdl.Window) !Self {
 
     self.alloc = alloc;
     self.window = window;
-    self.chunk_mesh = Mesh.init(alloc);
-    errdefer self.chunk_mesh.deinit();
+    self.mesh = Mesh.init(alloc);
+    errdefer self.mesh.deinit();
 
     var list = std.ArrayList([3]usize).init(alloc);
     defer list.deinit();
@@ -42,14 +40,15 @@ pub fn init(alloc: std.mem.Allocator, window: sdl.Window) !Self {
             try list.append(.{ x * 2, 0, z * 2 });
         }
     }
-    var mask: u4096 = 0b1010101010101010;
-    mask = mask | mask << 32;
-    mask = mask | mask << 64;
-    mask = mask | mask << 128;
-    mask = mask | mask << 512;
-    mask = mask | mask << 1024;
-    mask = mask | mask << 2048;
-    try self.chunk_mesh.generate(mask);
+    const mask: u4096 = 0b1010101010101010;
+    // var mask: u4096 = 0b1010101010101010;
+    // mask = mask | mask << 32;
+    // mask = mask | mask << 64;
+    // mask = mask | mask << 128;
+    // mask = mask | mask << 512;
+    // mask = mask | mask << 1024;
+    // mask = mask | mask << 2048;
+    try self.mesh.generate(mask);
 
     self.gl_ctx = try sdl.gl.createContext(window);
     errdefer self.gl_ctx.delete();
@@ -65,46 +64,18 @@ pub fn init(alloc: std.mem.Allocator, window: sdl.Window) !Self {
     errdefer self.vao.delete();
     log.print(.debug, "renderer", "vao created", .{});
 
-    self.pos_vbo = gl.Buffer.create();
-    errdefer self.pos_vbo.delete();
-    log.print(.debug, "renderer", "vbo created", .{});
-
-    self.face_vbo = gl.Buffer.create();
-    errdefer self.face_vbo.delete();
-    log.print(.debug, "renderer", "normal_vbo created", .{});
-
-    self.inst_vbo = gl.Buffer.create();
-    errdefer self.inst_vbo.delete();
-    log.print(.debug, "renderer", "inst_vbo created", .{});
-
-    self.vao.bind();
-
-    self.inst_vbo.bind(.array_buffer);
-    self.inst_vbo.data(f32, &[_]f32{
-        0.0, 0.0, 0.0,
-        1.0, 0.0, 0.0,
-        0.0, 0.0, 1.0,
-        1.0, 0.0, 1.0,
-    }, .static_draw);
-    gl.vertexAttribPointer(0, 3, .float, false, 3 * @sizeOf(f32), 0);
-    gl.enableVertexAttribArray(0);
-
-    self.pos_vbo.bind(.array_buffer);
-    self.pos_vbo.data(f32, self.chunk_mesh.get_face_positions(), .static_draw);
-    gl.vertexAttribPointer(1, 3, .float, false, 3 * @sizeOf(f32), 0);
-    gl.vertexAttribDivisor(1, 1);
-    gl.enableVertexAttribArray(1);
-
-    self.face_vbo.bind(.array_buffer);
-    self.face_vbo.data(u32, self.chunk_mesh.get_face_normals(), .static_draw);
-    gl.vertexAttribIPointer(2, 1, .unsigned_int, @sizeOf(u32), 0);
-    gl.vertexAttribDivisor(2, 1);
-    gl.enableVertexAttribArray(2);
+    self.ssbo = gl.Buffer.create();
+    errdefer self.ssbo.delete();
+    log.print(.debug, "renderer", "ssbo created", .{});
 
     gl.enable(.depth_test);
     gl.depthFunc(.less);
 
     self.pass = try ShaderPass.init(alloc);
+
+    self.pass.use();
+    self.ssbo.storage(u32, self.mesh.size(), self.mesh.data(), .{});
+    gl.bindBufferBase(.shader_storage_buffer, 0, self.ssbo);
 
     log.print(.debug, "renderer", "init complete", .{});
 
@@ -112,11 +83,9 @@ pub fn init(alloc: std.mem.Allocator, window: sdl.Window) !Self {
 }
 
 pub fn deinit(self: Self) void {
-    self.chunk_mesh.deinit();
+    self.mesh.deinit();
     self.pass.deinit();
-    self.inst_vbo.delete();
-    self.face_vbo.delete();
-    self.pos_vbo.delete();
+    self.ssbo.delete();
     self.vao.delete();
     self.gl_ctx.delete();
 
@@ -128,12 +97,12 @@ pub fn draw(self: *Self, input: *const InputState, camera: *const Camera) !void 
         self.pass.recompile();
     }
 
-    // gl.clearColor(1.0, 1.0, 1.0, 1.0);
     gl.clearColor(0.0, 0.0, 0.0, 1.0);
     gl.clear(.{ .color = true, .depth = true });
 
     self.pass.use();
     self.vao.bind();
+    self.ssbo.bind(.shader_storage_buffer);
 
     const model = zlm.Mat4.identity;
     self.pass.setMat4("model", model);
@@ -144,7 +113,19 @@ pub fn draw(self: *Self, input: *const InputState, camera: *const Camera) !void 
     self.pass.setMat4("inv_view", camera.inv_view);
     self.pass.setMat4("inv_proj", camera.inv_proj);
 
-    gl.drawArraysInstanced(.triangle_strip, 0, 4, self.chunk_mesh.size());
+    gl.drawArrays(.triangles, 0, self.mesh.size() * 6);
+
+    // const vert = Mesh.PackedFace{
+    //     .x = 1,
+    //     .y = 2,
+    //     .z = 3,
+    //     .face = .zp,
+    // };
+    // const x = @as(u32, @bitCast(vert)) & 0xFF;
+    // const y = (@as(u32, @bitCast(vert)) >> 8) & 0xFF;
+    // const z = (@as(u32, @bitCast(vert)) >> 16) & 0xFF;
+    // const f = (@as(u32, @bitCast(vert)) >> 24) & 0xFF;
+    // log.print(.debug, "renderer", "x{} y{} z{} f{}", .{ x, y, z, f });
 
     sdl.gl.swapWindow(self.window);
 }
