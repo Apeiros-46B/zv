@@ -1,19 +1,33 @@
 #version 410
 
-in vec3 color;
 in vec2 uv;
+in vec3 normal;
+in vec3 pos_in_brick;
+
 out vec4 frag_color;
+
+const int FACE_XP = 0;
+const int FACE_XN = 1;
+const int FACE_YP = 2;
+const int FACE_YN = 3;
+const int FACE_ZP = 4;
+const int FACE_ZN = 5;
+
+const float EPSILON = 0.00002;
 
 uniform vec2 scr_size;
 uniform mat4 inv_proj;
 uniform mat4 inv_view;
 
-// to fix the fract on whole numbers bug
-const float EPSILON = 0.000002;
-
 struct Ray {
-	vec3 origin;
+	vec3 pos;
 	vec3 dir;
+};
+
+// pos's value is undefined when hit is false.
+struct Hit {
+	bool hit;
+	ivec3 pos;
 };
 
 // takes position as vec3 in brick-local space
@@ -24,19 +38,77 @@ Ray getPrimaryRay(vec3 pos) {
 	return Ray(pos, dir.xyz);
 }
 
+// TODO: invesigate performance characteristics further. work on culling and reducing overdraw
+bool getVoxel(ivec3 pos) {
+	const int test = 0;
+	// all tests were conducted with a maximized window, all of the pixels covered by bricks, a full chunk of bricks, and no culling (not even adjacent faces)
+	if (test == 0) { // sphere
+		// OBSERVATIONS: around 5-6ms. overdraw? would more culling help (maybe when backfaces are culled this would be much faster)
+		vec3 posf = vec3(pos) - 3.5;
+		return posf.x*posf.x + posf.y*posf.y + posf.z*posf.z < 4*4;
+	} else if (test == 1) { // grid
+		// OBSERVATIONS: around 4-5ms. investigate overdraw?
+		if (pos.x == 8 || pos.y == 8 || pos.z == 8) {
+			return false;
+		}
+		return pos.x % 2 == 0 && pos.y % 2 == 0 && pos.z % 2 == 0;
+	} else if (test == 2) { // half height
+		// OBSERVATIONS: around 1-2ms. this is similar to the worst case on a real landscape where the player looks directly down at the ground from high up
+		return pos.y > 4;
+	} else if (test == 3) { // empty
+		// OBSERVATIONS: around 3ms. need a way to skip empty bricks without marching in them
+		return false;
+	} else if (test == 4) { // full
+		// OBSERVATIONS: around 0.5ms. this is the best case
+		return true;
+	}
+}
+
+bool outOfBrick(ivec3 pos, ivec3 step) {
+	ivec3 new = pos + step;
+	return new.x < -1
+		|| new.x > 8
+		|| new.y < -1
+		|| new.y > 8
+		|| new.z < -1
+		|| new.z > 8;
+}
+
+Hit fvta(Ray primary) {
+	vec3 sgn = sign(primary.dir);
+	vec3 posf = trunc(primary.pos + EPSILON);
+
+	ivec3 step = ivec3(sgn);
+	ivec3 pos = ivec3(posf);
+
+	vec3 dt = abs(length(primary.dir) / primary.dir);
+	vec3 t_side = ((sgn * (posf - primary.pos)) + (sgn * 0.5) + 0.5) * dt;
+
+	bvec3 mask;
+
+	// 3 dimensions in an 8x8, worst case is that the ray traverses 8 in each dimension
+	for (int i = 0; i < 24; i++) {
+		if (getVoxel(pos)) {
+			return Hit(true, pos);
+		}
+		if (outOfBrick(pos, step)) {
+			break;
+		}
+		mask = lessThanEqual(t_side.xyz, min(t_side.yzx, t_side.zxy));
+		t_side += vec3(mask) * dt;
+		pos += ivec3(mask) * step;
+	}
+
+	return Hit(false, pos);
+}
+
 void main() {
 	if (uv.x > 1.0 || uv.y > 1.0) {
 		discard;
 	}
-
-	// TODO: need to add brick-local coordinates as a vertex attribute instead of using this broken fract setup
-	// float x = brick_coord.x >= 0.999 ? 1.0 : fract(brick_coord.x + EPSILON);
-	// float y = brick_coord.y >= 0.999 ? 1.0 : fract(brick_coord.y + EPSILON);
-	// float z = brick_coord.z >= 0.999 ? 1.0 : fract(brick_coord.z + EPSILON);
-	// vec3 f = (brick_coord_i) * 8.0;
-	// // vec3 f = vec3(x, y, z) * 8.0;
-	// // vec3 g = floor(f+EPSILON) / 8.0;
-	// frag_color = vec4(f / 8.0, 1.0);
-	frag_color = vec4(color, 1.0);
-	// frag_color = vec4(1.0, 1.0, 1.0, 1.0);
+	Hit result = fvta(getPrimaryRay(pos_in_brick));
+	if (!result.hit) {
+		discard;
+	}
+	frag_color = vec4(result.pos / 8.0, 1.0);
 }

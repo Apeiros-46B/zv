@@ -86,6 +86,8 @@ pub const Face = enum(u8) {
 };
 
 pub fn generate(self: *Self, chunk: u4096) !void {
+    self.items.clearRetainingCapacity();
+
     for (0..16) |x| {
         for (0..16) |y| {
             for (0..16) |z| {
@@ -94,6 +96,7 @@ pub fn generate(self: *Self, chunk: u4096) !void {
                 for (0..6) |i| {
                     const face: Face = @enumFromInt(i);
 
+                    // TODO: don't cull adjacent faces when they are adjacent to a sparse brick
                     const nx = @as(i32, @intCast(x)) + face.dx();
                     const ny = @as(i32, @intCast(y)) + face.dy();
                     const nz = @as(i32, @intCast(z)) + face.dz();

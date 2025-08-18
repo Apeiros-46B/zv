@@ -4,8 +4,9 @@ layout(std430, binding = 0) readonly buffer vert_pull_buf {
 	uint packed_mesh_data[];
 };
 
-out vec3 color;
 out vec2 uv;
+out vec3 normal;
+out vec3 pos_in_brick;
 
 uniform mat4 model;
 uniform mat4 view;
@@ -39,31 +40,33 @@ void main() {
 		case FACE_XP:
 			local_pos.yz = local_pos.xz;
 			local_pos.x = 1.0;
-			color = vec3(1.0, 0.0, 0.0);
+			normal = vec3(1.0, 0.0, 0.0);
 			break;
 		case FACE_XN:
 			local_pos.yz = local_pos.xz;
 			local_pos.x = 0.0;
-			color = vec3(1.0, 1.0, 0.0);
+			normal = vec3(-1.0, 0.0, 0.0);
 			break;
 		case FACE_YP:
 			local_pos.y++;
-			color = vec3(0.0, 1.0, 0.0);
+			normal = vec3(0.0, 1.0, 0.0);
 			break;
 		case FACE_YN:
-			color = vec3(0.0, 1.0, 1.0);
+			normal = vec3(0.0, -1.0, 0.0);
 			break;
 		case FACE_ZP:
 			local_pos.xy = local_pos.xz;
 			local_pos.z = 1.0;
-			color = vec3(0.0, 0.0, 1.0);
+			normal = vec3(0.0, 0.0, 1.0);
 			break;
 		case FACE_ZN:
 			local_pos.xy = local_pos.xz;
 			local_pos.z = 0.0;
-			color = vec3(1.0, 0.0, 1.0);
+			normal = vec3(0.0, 0.0, -1.0);
 			break;
 	}
+
+	pos_in_brick = local_pos * 8.0;
 
 	gl_Position = proj * view * model * vec4(local_pos + global_pos, 1.0);
 }

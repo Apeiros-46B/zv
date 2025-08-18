@@ -33,13 +33,6 @@ pub fn init(alloc: std.mem.Allocator, window: sdl.Window) !Self {
     self.mesh = Mesh.init(alloc);
     errdefer self.mesh.deinit();
 
-    var list = std.ArrayList([3]usize).init(alloc);
-    defer list.deinit();
-    for (0..5) |x| {
-        for (0..5) |z| {
-            try list.append(.{ x * 2, 0, z * 2 });
-        }
-    }
     var mask: u4096 = 0b1010101010101010;
     mask = mask | mask << 32;
     mask = mask | mask << 64;
@@ -48,6 +41,7 @@ pub fn init(alloc: std.mem.Allocator, window: sdl.Window) !Self {
     mask = mask | mask << 1024;
     mask = mask | mask << 2048;
     try self.mesh.generate(mask);
+    // try self.mesh.generate(std.math.maxInt(u4096));
 
     self.gl_ctx = try sdl.gl.createContext(window);
     errdefer self.gl_ctx.delete();
