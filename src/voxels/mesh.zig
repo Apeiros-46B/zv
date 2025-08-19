@@ -97,15 +97,15 @@ pub fn generate(self: *Self, chunk: u4096) !void {
                     const face: Face = @enumFromInt(i);
 
                     // TODO: don't cull adjacent faces when they are adjacent to a sparse brick
-                    const nx = @as(i32, @intCast(x)) + face.dx();
-                    const ny = @as(i32, @intCast(y)) + face.dy();
-                    const nz = @as(i32, @intCast(z)) + face.dz();
+                    // const nx = @as(i32, @intCast(x)) + face.dx();
+                    // const ny = @as(i32, @intCast(y)) + face.dy();
+                    // const nz = @as(i32, @intCast(z)) + face.dz();
 
-                    if (nx >= 0 and nx < 16 and ny >= 0 and ny < 16 and nz >= 0 and nz < 16) {
-                        if (isVoxelSet(chunk, @intCast(nx), @intCast(ny), @intCast(nz))) {
-                            continue;
-                        }
-                    }
+                    // if (nx >= 0 and nx < 16 and ny >= 0 and ny < 16 and nz >= 0 and nz < 16) {
+                    //     if (isVoxelSet(chunk, @intCast(nx), @intCast(ny), @intCast(nz))) {
+                    //         continue;
+                    //     }
+                    // }
 
                     try self.add_face(x, y, z, face);
                 }

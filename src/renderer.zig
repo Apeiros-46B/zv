@@ -33,15 +33,16 @@ pub fn init(alloc: std.mem.Allocator, window: sdl.Window) !Self {
     self.mesh = Mesh.init(alloc);
     errdefer self.mesh.deinit();
 
-    var mask: u4096 = 0b1010101010101010;
-    mask = mask | mask << 32;
-    mask = mask | mask << 64;
-    mask = mask | mask << 128;
-    mask = mask | mask << 512;
-    mask = mask | mask << 1024;
-    mask = mask | mask << 2048;
-    try self.mesh.generate(mask);
-    // try self.mesh.generate(std.math.maxInt(u4096));
+    // var mask: u4096 = 0b1010101010101010;
+    // mask = mask | mask << 32;
+    // mask = mask | mask << 64;
+    // mask = mask | mask << 128;
+    // mask = mask | mask << 512;
+    // mask = mask | mask << 1024;
+    // mask = mask | mask << 2048;
+    // try self.mesh.generate(mask);
+    try self.mesh.generate(std.math.maxInt(u4096));
+    // try self.mesh.generate(1);
 
     self.gl_ctx = try sdl.gl.createContext(window);
     errdefer self.gl_ctx.delete();
@@ -49,6 +50,7 @@ pub fn init(alloc: std.mem.Allocator, window: sdl.Window) !Self {
     log.print(.debug, "renderer", "context loaded", .{});
 
     try sdl.gl.setSwapInterval(.adaptive_vsync);
+    // try sdl.gl.setSwapInterval(.immediate);
 
     try gl.loadExtensions(void, getProcAddressWrapper);
     log.print(.debug, "renderer", "extensions loaded", .{});
@@ -63,6 +65,8 @@ pub fn init(alloc: std.mem.Allocator, window: sdl.Window) !Self {
 
     gl.enable(.depth_test);
     gl.depthFunc(.less);
+    gl.enable(.cull_face);
+    gl.cullFace(.back);
 
     self.pass = try ShaderPass.init(alloc);
 

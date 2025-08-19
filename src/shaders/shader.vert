@@ -17,6 +17,11 @@ const vec3 face_verts_pos[] = vec3[] (
 	vec3(2.0f, 0.0f, 0.0f),
 	vec3(0.0f, 0.0f, 2.0f)
 );
+const vec3 face_verts_pos_ccw[] = vec3[] (
+	vec3(0.0f, 0.0f, 2.0f),
+	vec3(2.0f, 0.0f, 0.0f),
+	vec3(0.0f, 0.0f, 0.0f)
+);
 
 const int FACE_XP = 0;
 const int FACE_XN = 1;
@@ -33,7 +38,21 @@ void main() {
 	const uint f = bitfieldExtract(data, 24, 8);
 	const vec3 global_pos = vec3(x, y, z);
 
-	vec3 local_pos = face_verts_pos[gl_VertexID % 3];
+	vec3 local_pos;
+	
+	switch (f) {
+		case FACE_XP:
+		case FACE_YN:
+		case FACE_ZP:
+	 		local_pos = face_verts_pos[gl_VertexID % 3];
+			break;
+		case FACE_XN:
+		case FACE_YP:
+		case FACE_ZN:
+			local_pos = face_verts_pos_ccw[gl_VertexID % 3];
+			break;
+	}
+	
 	uv = local_pos.xz;
 
 	switch (f) {

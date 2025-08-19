@@ -1,3 +1,5 @@
 /.direnv/
+/.build_config/
 /.zig-cache/
 /zig-out/
+/rdc/

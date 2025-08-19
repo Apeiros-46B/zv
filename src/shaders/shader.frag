@@ -41,25 +41,25 @@ Ray getPrimaryRay(vec3 pos) {
 // TODO: invesigate performance characteristics further. work on culling and reducing overdraw
 bool getVoxel(ivec3 pos) {
 	const int test = 0;
-	// all tests were conducted with a maximized window, all of the pixels covered by bricks, a full chunk of bricks, and no culling (not even adjacent faces)
+	// all tests were conducted with a maximized window, all of the pixels covered by bricks, a full chunk of bricks, and backface culling (no adjacent face culling)
 	if (test == 0) { // sphere
-		// OBSERVATIONS: around 5-6ms. overdraw? would more culling help (maybe when backfaces are culled this would be much faster)
+		// OBSERVATIONS: around 1-2ms, 500fps. would more culling help? maybe investigate the vercidium method of culling instead of standard opengl cw/ccw (visible surface determination) also investigate overdraw
 		vec3 posf = vec3(pos) - 3.5;
 		return posf.x*posf.x + posf.y*posf.y + posf.z*posf.z < 4*4;
 	} else if (test == 1) { // grid
-		// OBSERVATIONS: around 4-5ms. investigate overdraw?
+		// OBSERVATIONS: around 2ms, 360fps. same as above
 		if (pos.x == 8 || pos.y == 8 || pos.z == 8) {
 			return false;
 		}
 		return pos.x % 2 == 0 && pos.y % 2 == 0 && pos.z % 2 == 0;
 	} else if (test == 2) { // half height
-		// OBSERVATIONS: around 1-2ms. this is similar to the worst case on a real landscape where the player looks directly down at the ground from high up, only on a smaller scale
+		// OBSERVATIONS: around 1ms, 650fps. this is similar to the worst case on a real landscape where the player looks directly down at the ground from high up, only on a smaller scale
 		return pos.y > 4;
 	} else if (test == 3) { // empty
-		// OBSERVATIONS: around 3ms. this should not happen in a real situation because empty bricks will not be meshed.
+		// OBSERVATIONS: around 2ms, 336fps. worst case. this should not happen in a real situation because empty bricks will not be meshed.
 		return false;
 	} else if (test == 4) { // full
-		// OBSERVATIONS: around 0.5ms. this is the best case
+		// OBSERVATIONS: around 0.56ms, 1800fps. this is the best case, but can be better by attaching an attrib to "full" bricks and preventing marching entirely and simply rasterizing them
 		return true;
 	}
 }
