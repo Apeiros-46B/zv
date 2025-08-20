@@ -4,7 +4,9 @@ const zlm = @import("zlm");
 
 const log = @import("log.zig");
 const util = @import("util.zig");
+
 const InputState = @import("input.zig");
+// const World = @import("world.zig");
 const Camera = @import("camera.zig");
 const Renderer = @import("renderer.zig");
 const Self = @This();
@@ -12,6 +14,7 @@ const Self = @This();
 alloc: std.mem.Allocator,
 window: sdl.Window,
 input: InputState,
+// world: World,
 camera: Camera,
 renderer: Renderer,
 

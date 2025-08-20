@@ -5,18 +5,21 @@ const zlm = @import("zlm");
 
 const log = @import("log.zig");
 const util = @import("util.zig");
-const Mesh = @import("voxels/mesh.zig");
+const World = @import("world.zig");
 const Camera = @import("camera.zig");
 const InputState = @import("input.zig");
 const Self = @This();
 
 alloc: std.mem.Allocator,
 window: sdl.Window,
-mesh: Mesh,
+chunk: World.Chunk,
 
 gl_ctx: sdl.gl.Context,
 vao: gl.VertexArray,
-ssbo: gl.Buffer,
+vert_pull_ssbo: gl.Buffer,
+// TODO: add a second ssbo storing the BrickPtr corresponding to each face. add a third ssbo storing the "data: std.ArrayList(Brick)" data, with indices compatible with the BrickPtr.ptr field
+// index the 2nd ssbo in the vertex shader to provide values to the fragment shader: whether or not to raymarch, the material/'ptr', etc
+// in the fragment shader, if we are going to raymarch, index the 3rd ssbo by 'ptr' to get the brick data to raymarch through
 
 scr_size: zlm.Vec2,
 pass: ShaderPass,
@@ -30,26 +33,19 @@ pub fn init(alloc: std.mem.Allocator, window: sdl.Window) !Self {
 
     self.alloc = alloc;
     self.window = window;
-    self.mesh = Mesh.init(alloc);
-    errdefer self.mesh.deinit();
+    self.chunk = try World.Chunk.init(alloc);
+    errdefer self.chunk.deinit();
 
-    // var mask: u4096 = 0b1010101010101010;
-    // mask = mask | mask << 32;
-    // mask = mask | mask << 64;
-    // mask = mask | mask << 128;
-    // mask = mask | mask << 512;
-    // mask = mask | mask << 1024;
-    // mask = mask | mask << 2048;
-    // try self.mesh.generate(mask);
-    try self.mesh.generate(std.math.maxInt(u4096));
-    // try self.mesh.generate(1);
+    self.chunk.set(0, 0, 0);
+    self.chunk.set(2, 0, 0);
+    try self.chunk.remesh();
 
     self.gl_ctx = try sdl.gl.createContext(window);
     errdefer self.gl_ctx.delete();
     try self.gl_ctx.makeCurrent(window);
     log.print(.debug, "renderer", "context loaded", .{});
 
-    try sdl.gl.setSwapInterval(.adaptive_vsync);
+    try sdl.gl.setSwapInterval(.vsync);
     // try sdl.gl.setSwapInterval(.immediate);
 
     try gl.loadExtensions(void, getProcAddressWrapper);
@@ -59,8 +55,8 @@ pub fn init(alloc: std.mem.Allocator, window: sdl.Window) !Self {
     errdefer self.vao.delete();
     log.print(.debug, "renderer", "vao created", .{});
 
-    self.ssbo = gl.Buffer.create();
-    errdefer self.ssbo.delete();
+    self.vert_pull_ssbo = gl.Buffer.create();
+    errdefer self.vert_pull_ssbo.delete();
     log.print(.debug, "renderer", "ssbo created", .{});
 
     gl.enable(.depth_test);
@@ -71,8 +67,8 @@ pub fn init(alloc: std.mem.Allocator, window: sdl.Window) !Self {
     self.pass = try ShaderPass.init(alloc);
 
     self.pass.use();
-    self.ssbo.storage(u32, self.mesh.size(), self.mesh.data(), .{});
-    gl.bindBufferBase(.shader_storage_buffer, 0, self.ssbo);
+    self.vert_pull_ssbo.storage(u32, self.chunk.mesh.size(), self.chunk.mesh.data(), .{});
+    gl.bindBufferBase(.shader_storage_buffer, 0, self.vert_pull_ssbo);
 
     log.print(.debug, "renderer", "init complete", .{});
 
@@ -80,9 +76,9 @@ pub fn init(alloc: std.mem.Allocator, window: sdl.Window) !Self {
 }
 
 pub fn deinit(self: Self) void {
-    self.mesh.deinit();
+    self.chunk.deinit();
     self.pass.deinit();
-    self.ssbo.delete();
+    self.vert_pull_ssbo.delete();
     self.vao.delete();
     self.gl_ctx.delete();
 
@@ -99,7 +95,7 @@ pub fn draw(self: *Self, input: *const InputState, camera: *const Camera) !void 
 
     self.pass.use();
     self.vao.bind();
-    self.ssbo.bind(.shader_storage_buffer);
+    self.vert_pull_ssbo.bind(.shader_storage_buffer);
 
     const model = zlm.Mat4.identity;
     self.pass.setMat4("model", model);
@@ -110,7 +106,7 @@ pub fn draw(self: *Self, input: *const InputState, camera: *const Camera) !void 
     self.pass.setMat4("inv_view", camera.inv_view);
     self.pass.setMat4("inv_proj", camera.inv_proj);
 
-    gl.drawArrays(.triangles, 0, self.mesh.size() * 3);
+    gl.drawArrays(.triangles, 0, self.chunk.mesh.size() * 3);
 
     sdl.gl.swapWindow(self.window);
 }

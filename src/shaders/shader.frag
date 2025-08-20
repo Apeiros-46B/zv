@@ -1,4 +1,4 @@
-#version 410
+#version 430
 
 in vec2 uv;
 in vec3 normal;
@@ -67,11 +67,11 @@ bool getVoxel(ivec3 pos) {
 bool outOfBrick(ivec3 pos, ivec3 step) {
 	ivec3 new = pos + step;
 	return new.x < -1
-		|| new.x > 8
-		|| new.y < -1
-		|| new.y > 8
-		|| new.z < -1
-		|| new.z > 8;
+	    || new.x > 8
+	    || new.y < -1
+	    || new.y > 8
+	    || new.z < -1
+	    || new.z > 8;
 }
 
 Hit fvta(Ray primary) {

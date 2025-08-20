@@ -5,6 +5,7 @@ pkgs.mkShell rec {
 		zig
 		zls
 		shader-slang
+		renderdoc
 	];
 
 	buildInputs = with pkgs; [
