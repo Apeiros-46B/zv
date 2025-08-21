@@ -14,7 +14,7 @@ pub const Coord = struct {
 
 // 32*32*32 chunks
 pub const Region = struct {
-    chunks: [32*32*32]ChunkPtr,
+    chunks: [32 * 32 * 32]ChunkPtr,
     data: std.ArrayList(Chunk),
 };
 
@@ -38,12 +38,13 @@ pub const Chunk = struct {
         self.data = std.ArrayList(Brick).init(alloc);
         self.mesh = Mesh.init(alloc);
 
-        for (0..4095) |i| {
+        for (0..4096) |i| {
             self.bricks[i] = .{
                 .loaded = false,
                 .requested = false,
                 .sparse = false,
                 .ptr = 0,
+                .padding = false,
             };
         }
 
@@ -93,10 +94,11 @@ pub const BrickPtr = packed struct {
     requested: bool,
     sparse: bool,
     ptr: u12,
+    padding: bool,
 };
 
 pub const Brick = struct {
-    voxels: [8*8*8]Voxel,
+    voxels: [8 * 8 * 8]Voxel,
 };
 
 pub const Voxel = packed struct {
@@ -105,37 +107,50 @@ pub const Voxel = packed struct {
 };
 
 pub const Mesh = struct {
-    items: std.ArrayList(PackedFace),
+    faces: std.ArrayList(PackedFace),
+    ptrs: std.ArrayList(BrickPtr),
 
     pub fn init(alloc: std.mem.Allocator) Mesh {
         var self: Mesh = undefined;
-        self.items = std.ArrayList(PackedFace).init(alloc);
+        self.faces = std.ArrayList(PackedFace).init(alloc);
+        self.ptrs = std.ArrayList(BrickPtr).init(alloc);
         return self;
     }
 
     pub fn deinit(self: Mesh) void {
-        self.items.deinit();
+        self.faces.deinit();
+        self.ptrs.deinit();
     }
 
-    pub fn data(self: *Mesh) [*]const u32 {
-        return @ptrCast(self.items.items.ptr);
+    pub fn getFaces(self: *Mesh) [*]const u32 {
+        return @ptrCast(self.faces.items.ptr);
     }
 
-    pub fn size(self: *Mesh) usize {
-        return self.items.items.len;
+    pub fn getPtrs(self: *Mesh) [*]const u32 {
+        return @alignCast(self.ptrs.items.ptr);
     }
 
-    fn add_face(self: *Mesh, x: usize, y: usize, z: usize, face: Face) !void {
-        try self.items.append(.{
+    pub fn numFaces(self: *Mesh) usize {
+        return self.faces.items.len;
+    }
+
+    pub fn numPtrs(self: *Mesh) usize {
+        // number of u32s, so we use divceil (5 u16s fits into the space of 3 u32s)
+        return std.math.divCeil(usize, self.ptrs.items.len, 2) orelse unreachable;
+    }
+
+    fn add_face(self: *Mesh, chunk: *Chunk, x: usize, y: usize, z: usize, face: Face) !void {
+        try self.faces.append(.{
             .x = @as(u8, @intCast(x)),
             .y = @as(u8, @intCast(y)),
             .z = @as(u8, @intCast(z)),
             .face = face,
         });
+        try self.ptrs.append(chunk.get(x, y, z));
     }
 
     pub fn generate(self: *Mesh, chunk: *Chunk) !void {
-        self.items.clearRetainingCapacity();
+        self.faces.clearRetainingCapacity();
 
         for (0..16) |x| {
             for (0..16) |y| {
@@ -155,14 +170,11 @@ pub const Mesh = struct {
                             }
                         }
 
-                        try self.add_face(x, y, z, face);
+                        try self.add_face(chunk, x, y, z, face);
                     }
                 }
             }
         }
-
-        // TODO: investigate why a mesh of two non-adjacent cubes contains 18 faces instead of 12
-        log.print(.debug, "mesh", "faces: {}", .{ self.size() });
     }
 };
 
@@ -171,6 +183,10 @@ pub const PackedFace = packed struct {
     y: u8,
     z: u8,
     face: Face,
+
+    fn debugPrint(self: PackedFace) void {
+        log.print(.debug, "mesh", "face: ({}, {}, {}) {s}", .{ self.x, self.y, self.z, @tagName(self.face) });
+    }
 };
 
 pub const Face = enum(u8) {

@@ -1,7 +1,10 @@
 #version 430
 
-layout(std430, binding = 0) readonly buffer vert_pull_buf {
-	uint packed_mesh_data[];
+layout(std430, binding = 0) readonly buffer vert_pull_faces_buf {
+	uint packed_face_data[];
+};
+layout(std430, binding = 1) readonly buffer vert_pull_buf {
+	uint brick_ptr_data[];
 };
 
 out vec2 uv;
@@ -31,13 +34,20 @@ const int FACE_ZP = 4;
 const int FACE_ZN = 5;
 
 void main() {
-	const uint data = packed_mesh_data[gl_VertexID / 3];
-	const uint x = bitfieldExtract(data, 0, 8);
-	const uint y = bitfieldExtract(data, 8, 8);
-	const uint z = bitfieldExtract(data, 16, 8);
-	const uint f = bitfieldExtract(data, 24, 8);
-	const vec3 global_pos = vec3(x, y, z);
+	uint i = gl_VertexID / 3;
+	uint j = i / 2;
+	uint k = i % 2;
 
+	const uint face_data = packed_face_data[i];
+	const uint x = bitfieldExtract(face_data, 0, 8);
+	const uint y = bitfieldExtract(face_data, 8, 8);
+	const uint z = bitfieldExtract(face_data, 16, 8);
+	const uint f = bitfieldExtract(face_data, 24, 8);
+
+	const uint brick_ptr_area = brick_ptr_data[j];
+	// TODO
+
+	vec3 global_pos = vec3(x, y, z);
 	vec3 local_pos;
 	
 	switch (f) {
