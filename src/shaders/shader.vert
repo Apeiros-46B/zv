@@ -3,13 +3,12 @@
 layout(std430, binding = 0) readonly buffer vert_pull_faces_buf {
 	uint packed_face_data[];
 };
-layout(std430, binding = 1) readonly buffer vert_pull_buf {
-	uint brick_ptr_data[];
-};
 
 out vec2 uv;
 out vec3 normal;
 out vec3 pos_in_brick;
+flat out uint brick_sparse;
+flat out uint brick_ptr;
 
 uniform mat4 model;
 uniform mat4 view;
@@ -34,18 +33,16 @@ const int FACE_ZP = 4;
 const int FACE_ZN = 5;
 
 void main() {
-	uint i = gl_VertexID / 3;
-	uint j = i / 2;
-	uint k = i % 2;
+	const uint face_data = packed_face_data[gl_VertexID / 3];
+	const uint x = bitfieldExtract(face_data, 0, 4);
+	const uint y = bitfieldExtract(face_data, 4, 4);
+	const uint z = bitfieldExtract(face_data, 8, 4);
+	const uint f = bitfieldExtract(face_data, 12, 4);
 
-	const uint face_data = packed_face_data[i];
-	const uint x = bitfieldExtract(face_data, 0, 8);
-	const uint y = bitfieldExtract(face_data, 8, 8);
-	const uint z = bitfieldExtract(face_data, 16, 8);
-	const uint f = bitfieldExtract(face_data, 24, 8);
-
-	const uint brick_ptr_area = brick_ptr_data[j];
-	// TODO
+	// brick_loaded = bitfieldExtract(face_data, 16, 1);
+	// brick_requested = bitfieldExtract(face_data, 17, 1);
+	brick_sparse = bitfieldExtract(face_data, 18, 1);
+	brick_ptr = bitfieldExtract(face_data, 19, 12);
 
 	vec3 global_pos = vec3(x, y, z);
 	vec3 local_pos;

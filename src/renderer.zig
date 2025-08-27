@@ -16,15 +16,13 @@ chunk: World.Chunk,
 
 gl_ctx: sdl.gl.Context,
 vao: gl.VertexArray,
-vert_ssbo: gl.Buffer, // TODO: remove backfaces before vertex shader
-brickp_ssbo: gl.Buffer, // stores the BrickPtrs
+face_ssbo: gl.Buffer, // TODO: remove backfaces before vertex shader
 brick_ssbo: gl.Buffer, // stores the brick data
 
-// TODO: don't draw one chunk at a time
+// TODO: draw more than one chunk in one draw call. vsh needs to know what chunk a face belongs to, and fsh needs to know what chunk a brick belongs to
 
-// TODO: add a third ssbo storing the "data: std.ArrayList(Brick)" data, with indices compatible with the BrickPtr.ptr field
-// index the 2nd ssbo in the vertex shader to provide values to the fragment shader: whether or not to raymarch, the material/'ptr', etc
-// in the fragment shader, if we are going to raymarch, index the 3rd ssbo by 'ptr' to get the brick data to raymarch through
+// index the face ssbo in the vertex shader to provide values to the fragment shader: whether or not to raymarch, the material/'ptr', etc
+// in the fragment shader, if we are going to raymarch, index the brick ssbo by 'ptr' to get the brick data to raymarch through
 
 scr_size: zlm.Vec2,
 pass: ShaderPass,
@@ -60,10 +58,10 @@ pub fn init(alloc: std.mem.Allocator, window: sdl.Window) !Self {
     errdefer self.vao.delete();
     log.print(.debug, "renderer", "vao created", .{});
 
-    self.vert_ssbo = gl.Buffer.create();
-    errdefer self.vert_ssbo.delete();
-    self.brickp_ssbo = gl.Buffer.create();
-    errdefer self.brickp_ssbo.delete();
+    self.face_ssbo = gl.Buffer.create();
+    errdefer self.face_ssbo.delete();
+    self.brick_ssbo = gl.Buffer.create();
+    errdefer self.brick_ssbo.delete();
     log.print(.debug, "renderer", "ssbos created", .{});
 
     gl.enable(.depth_test);
@@ -74,10 +72,10 @@ pub fn init(alloc: std.mem.Allocator, window: sdl.Window) !Self {
     self.pass = try ShaderPass.init(alloc);
 
     self.pass.use();
-    self.vert_ssbo.storage(u32, self.chunk.mesh.numFaces(), self.chunk.mesh.getFaces(), .{});
-    gl.bindBufferBase(.shader_storage_buffer, 0, self.vert_ssbo);
-    self.brickp_ssbo.storage(u32, self.chunk.mesh.numPtrs(), self.chunk.mesh.getPtrs(), .{});
-    gl.bindBufferBase(.shader_storage_buffer, 1, self.brickp_ssbo);
+    self.face_ssbo.storage(u32, self.chunk.mesh.numFaces(), self.chunk.mesh.getFaces(), .{});
+    gl.bindBufferBase(.shader_storage_buffer, 0, self.face_ssbo);
+    // self.brick_ssbo.storage(u8192, self.chunk.numBricks(), self.chunk.getBricks(), .{});
+    // gl.bindBufferBase(.shader_storage_buffer, 1, self.brick_ssbo);
 
     log.print(.debug, "renderer", "init complete", .{});
 
@@ -87,8 +85,7 @@ pub fn init(alloc: std.mem.Allocator, window: sdl.Window) !Self {
 pub fn deinit(self: Self) void {
     self.chunk.deinit();
     self.pass.deinit();
-    self.brickp_ssbo.delete();
-    self.vert_ssbo.delete();
+    self.face_ssbo.delete();
     self.vao.delete();
     self.gl_ctx.delete();
 
@@ -105,19 +102,18 @@ pub fn draw(self: *Self, input: *const InputState, camera: *const Camera) !void 
 
     self.pass.use();
     self.vao.bind();
-    self.vert_ssbo.bind(.shader_storage_buffer);
+    self.face_ssbo.bind(.shader_storage_buffer);
 
     const model = zlm.Mat4.identity;
     self.pass.setMat4("model", model);
     self.pass.setMat4("view", camera.view);
     self.pass.setMat4("proj", camera.proj);
-    self.pass.setUint("n_verts", self.chunk.mesh.size());
 
     self.pass.setVec2("scr_size", self.scr_size);
     self.pass.setMat4("inv_view", camera.inv_view);
     self.pass.setMat4("inv_proj", camera.inv_proj);
 
-    gl.drawArrays(.triangles, 0, self.chunk.mesh.size() * 3);
+    gl.drawArrays(.triangles, 0, self.chunk.mesh.numFaces() * 3);
 
     sdl.gl.swapWindow(self.window);
 }

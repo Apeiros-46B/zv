@@ -24,22 +24,23 @@ pub const ChunkPtr = packed struct {
 };
 
 // 16*16*16 bricks
+// TODO: figure out how to get/set individual voxels within bricks quickly without duplicating bricks
 pub const Chunk = struct {
     alloc: std.mem.Allocator,
-    bricks: []BrickPtr,
-    data: std.ArrayList(Brick),
+    brickps: []BrickPtr,
+    bricks: std.ArrayList(Brick),
     mesh: Mesh,
 
     pub fn init(alloc: std.mem.Allocator) !Chunk {
         var self: Chunk = undefined;
 
         self.alloc = alloc;
-        self.bricks = try alloc.alloc(BrickPtr, 4096);
-        self.data = std.ArrayList(Brick).init(alloc);
+        self.brickps = try alloc.alloc(BrickPtr, 4096);
+        self.bricks = std.ArrayList(Brick).init(alloc);
         self.mesh = Mesh.init(alloc);
 
         for (0..4096) |i| {
-            self.bricks[i] = .{
+            self.brickps[i] = .{
                 .loaded = false,
                 .requested = false,
                 .sparse = false,
@@ -52,23 +53,32 @@ pub const Chunk = struct {
     }
 
     pub fn deinit(self: Chunk) void {
-        self.alloc.free(self.bricks);
-        self.data.deinit();
+        self.alloc.free(self.brickps);
+        self.bricks.deinit();
         self.mesh.deinit();
     }
 
+    // TODO: fix alignment issue and find out how to index from fsh
+    // pub fn getBricks(self: *Chunk) [*]const u32 {
+    //     return @ptrCast(self.bricks.items.ptr);
+    // }
+
+    pub fn numBricks(self: *Chunk) usize {
+        return self.bricks.items.len;
+    }
+
     pub fn get(self: *Chunk, x: usize, y: usize, z: usize) BrickPtr {
-        return self.bricks[x + y * 16 + z * 256];
+        return self.brickps[x + y * 16 + z * 256];
     }
 
     pub fn set(self: *Chunk, x: usize, y: usize, z: usize) void {
-        var brickp = &self.bricks[x + y * 16 + z * 256];
+        var brickp = &self.brickps[x + y * 16 + z * 256];
         brickp.sparse = false;
         brickp.ptr = 1;
     }
 
     pub fn unset(self: *Chunk, x: usize, y: usize, z: usize) void {
-        var brickp = &self.bricks[x + y * 16 + z * 256];
+        var brickp = &self.brickps[x + y * 16 + z * 256];
         brickp.sparse = false;
         brickp.ptr = 0;
     }
@@ -88,7 +98,7 @@ pub const Chunk = struct {
     }
 };
 
-// note that a brick that's completely filled but made of two separate materials is nonetheless considered 'sparse'. maybe this could be optimized in the future to just be rasterized with some kind of texture lookup instead of spending one raymarching step
+// note that a brick that's completely filled but made of multiple separate materials is nonetheless considered 'sparse'. maybe this could be optimized in the future to just be rasterized with some kind of texture lookup instead of spending one raymarching step
 pub const BrickPtr = packed struct {
     loaded: bool,
     requested: bool,
@@ -108,48 +118,37 @@ pub const Voxel = packed struct {
 
 pub const Mesh = struct {
     faces: std.ArrayList(PackedFace),
-    ptrs: std.ArrayList(BrickPtr),
 
     pub fn init(alloc: std.mem.Allocator) Mesh {
         var self: Mesh = undefined;
         self.faces = std.ArrayList(PackedFace).init(alloc);
-        self.ptrs = std.ArrayList(BrickPtr).init(alloc);
         return self;
     }
 
     pub fn deinit(self: Mesh) void {
         self.faces.deinit();
-        self.ptrs.deinit();
     }
 
     pub fn getFaces(self: *Mesh) [*]const u32 {
         return @ptrCast(self.faces.items.ptr);
     }
 
-    pub fn getPtrs(self: *Mesh) [*]const u32 {
-        return @alignCast(self.ptrs.items.ptr);
-    }
-
     pub fn numFaces(self: *Mesh) usize {
         return self.faces.items.len;
     }
 
-    pub fn numPtrs(self: *Mesh) usize {
-        // number of u32s, so we use divceil (5 u16s fits into the space of 3 u32s)
-        return std.math.divCeil(usize, self.ptrs.items.len, 2) orelse unreachable;
-    }
-
     fn add_face(self: *Mesh, chunk: *Chunk, x: usize, y: usize, z: usize, face: Face) !void {
         try self.faces.append(.{
-            .x = @as(u8, @intCast(x)),
-            .y = @as(u8, @intCast(y)),
-            .z = @as(u8, @intCast(z)),
+            .x = @as(u4, @intCast(x)),
+            .y = @as(u4, @intCast(y)),
+            .z = @as(u4, @intCast(z)),
             .face = face,
+            .brickp = chunk.get(x, y, z),
         });
-        try self.ptrs.append(chunk.get(x, y, z));
     }
 
-    pub fn generate(self: *Mesh, chunk: *Chunk) !void {
+    // basic culled mesher
+    fn generate(self: *Mesh, chunk: *Chunk) !void {
         self.faces.clearRetainingCapacity();
 
         for (0..16) |x| {
@@ -179,17 +178,18 @@ pub const Mesh = struct {
 };
 
 pub const PackedFace = packed struct {
-    x: u8,
-    y: u8,
-    z: u8,
+    x: u4,
+    y: u4,
+    z: u4,
     face: Face,
+    brickp: BrickPtr,
 
     fn debugPrint(self: PackedFace) void {
         log.print(.debug, "mesh", "face: ({}, {}, {}) {s}", .{ self.x, self.y, self.z, @tagName(self.face) });
     }
 };
 
-pub const Face = enum(u8) {
+pub const Face = enum(u4) {
     xp = 0,
     xn = 1,
     yp = 2,

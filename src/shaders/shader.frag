@@ -1,8 +1,14 @@
 #version 430
 
+layout(std430, binding = 1) readonly buffer bricks_buf {
+	uint bricks[];
+};
+
 in vec2 uv;
 in vec3 normal;
 in vec3 pos_in_brick;
+flat in uint brick_sparse;
+flat in uint brick_ptr;
 
 out vec4 frag_color;
 
@@ -106,9 +112,13 @@ void main() {
 	if (uv.x > 1.0 || uv.y > 1.0) {
 		discard;
 	}
-	Hit result = fvta(getPrimaryRay(pos_in_brick));
-	if (!result.hit) {
-		discard;
+	if (brick_sparse == 1) {
+		Hit result = fvta(getPrimaryRay(pos_in_brick));
+		if (!result.hit) {
+			discard;
+		}
+		frag_color = vec4(result.pos / 8.0, 1.0);
+	} else {
+		frag_color = vec4(pos_in_brick / 8.0, 1.0);
 	}
-	frag_color = vec4(result.pos / 8.0, 1.0);
 }
