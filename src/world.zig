@@ -39,14 +39,25 @@ pub const Chunk = struct {
         self.bricks = std.ArrayListAligned(Brick, 4).init(alloc);
         self.mesh = Mesh.init(alloc);
 
-        try self.bricks.append(Brick.initEvenGrid());
+        try self.bricks.append(Brick.initGrid(true));
+        try self.bricks.append(Brick.initGrid(false));
+        try self.bricks.append(Brick.initSphere());
 
         for (0..4096) |i| {
             self.brickps[i] = .{
                 .loaded = false,
                 .requested = false,
-                .sparse = true,
+                .sparse = false,
                 .ptr = 0,
+                .padding = false,
+            };
+        }
+        for (0..3) |i| {
+            self.brickps[i * 2] = .{
+                .loaded = false,
+                .requested = false,
+                .sparse = true,
+                .ptr = @intCast(i),
                 .padding = false,
             };
         }
@@ -66,7 +77,7 @@ pub const Chunk = struct {
     }
 
     pub fn numVoxels(self: *Chunk) usize {
-        return self.bricks.items.len * 256;
+        return self.bricks.items.len * 512;
     }
 
     pub fn get(self: *Chunk, x: usize, y: usize, z: usize) BrickPtr {
@@ -116,14 +127,41 @@ pub const BrickPtr = packed struct {
 pub const Brick = struct {
     voxels: [8 * 8 * 8]Voxel,
 
-    fn initEvenGrid() Brick {
+    fn initGrid(even: bool) Brick {
         var self: Brick = undefined;
 
         for (0..8) |x| {
             for (0..8) |y| {
                 for (0..8) |z| {
                     var material: u12 = 0;
-                    if (x % 2 == 0 and y % 2 == 0 and z % 2 == 0) {
+                    if (even) {
+                        if (x % 2 == 0 and y % 2 == 0 and z % 2 == 0) {
+                            material = 1;
+                        }
+                    } else {
+                        if (x % 2 == 1 and y % 2 == 1 and z % 2 == 1) {
+                            material = 1;
+                        }
+                    }
+                    self.voxels[x + 8 * y + 64 * z] = .{
+                        .material = material,
+                        .padding = 0,
+                    };
+                }
+            }
+        }
+
+        return self;
+    }
+
+    fn initSphere() Brick {
+        var self: Brick = undefined;
+
+        for (0..8) |x| {
+            for (0..8) |y| {
+                for (0..8) |z| {
+                    var material: u12 = 0;
+                    if (x * x + y * y + z * z < 16) {
                         material = 1;
                     }
                     self.voxels[x + 8 * y + 64 * z] = .{
@@ -135,6 +173,16 @@ pub const Brick = struct {
         }
 
         return self;
+    }
+
+    fn countVoxels(self: *const Brick) usize {
+        var count: usize = 0;
+        for (self.voxels) |v| {
+            if (v.material != 0) {
+                count += 1;
+            }
+        }
+        return count;
     }
 };
 

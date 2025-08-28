@@ -46,19 +46,22 @@ Ray getPrimaryRay(vec3 pos) {
 
 // TODO: half the brick is missing, and there are thin planes on the edges of the brick
 uint getVoxel(ivec3 pos) {
+	// pos += ivec3(-4);
+	// index of the voxel within the brick
 	uint idx = pos.x + 8 * pos.y + 64 * pos.z;
-	uint two_voxels = voxels[brick_ptr * 128 + (idx >> 1)];
+	// get the voxel pair that it resides in
+	uint two_voxels = voxels[brick_ptr * 256 + (idx >> 1)];
+	// extract the correct voxel from the pair
 	return bitfieldExtract(two_voxels, int((idx & 1) * 16), 16);
 }
 
-bool outOfBrick(ivec3 pos, ivec3 step) {
-	ivec3 new = pos + step;
-	return new.x < -1
-	    || new.x > 8
-	    || new.y < -1
-	    || new.y > 8
-	    || new.z < -1
-	    || new.z > 8;
+bool outOfBrick(ivec3 pos) {
+	return pos.x < 0
+	    || pos.x > 7
+	    || pos.y < 0
+	    || pos.y > 7
+	    || pos.z < 0
+	    || pos.z > 7;
 }
 
 Hit fvta(Ray primary) {
@@ -75,12 +78,15 @@ Hit fvta(Ray primary) {
 
 	// 3 dimensions in an 8x8, worst case is that the ray traverses 8 in each dimension
 	for (int i = 0; i < 24; i++) {
-		if (getVoxel(pos) != 0) {
+		// if (outOfBrick(pos + step)) {
+		// 	break;
+		// }
+		if (getVoxel(pos) != 0 && !outOfBrick(pos)) {
 			return Hit(true, pos);
 		}
-		if (outOfBrick(pos, step)) {
-			break;
-		}
+		// else if (outOfBrick(pos + step)) {
+		// 	break;
+		// }
 		mask = lessThanEqual(t_side.xyz, min(t_side.yzx, t_side.zxy));
 		t_side += vec3(mask) * dt;
 		pos += ivec3(mask) * step;
@@ -99,6 +105,8 @@ void main() {
 			discard;
 		}
 		frag_color = vec4(result.pos / 8.0, 1.0);
+		// frag_color = vec4(vec3(result.pos.k / 8.0), 1.0);
+		// frag_color = vec4(vec3(greaterThan(result.pos, ivec3(7))), 1.0);
 	} else {
 		frag_color = vec4(pos_in_brick / 8.0, 1.0);
 	}
