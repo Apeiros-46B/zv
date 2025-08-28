@@ -25,12 +25,12 @@ const vec3 face_verts_pos_ccw[] = vec3[] (
 	vec3(0.0f, 0.0f, 0.0f)
 );
 
-const int FACE_XP = 0;
-const int FACE_XN = 1;
-const int FACE_YP = 2;
-const int FACE_YN = 3;
-const int FACE_ZP = 4;
-const int FACE_ZN = 5;
+const uint FACE_XP = 0u;
+const uint FACE_XN = 1u;
+const uint FACE_YP = 2u;
+const uint FACE_YN = 3u;
+const uint FACE_ZP = 4u;
+const uint FACE_ZN = 5u;
 
 void main() {
 	const uint face_data = packed_face_data[gl_VertexID / 3];

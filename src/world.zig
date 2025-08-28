@@ -39,11 +39,13 @@ pub const Chunk = struct {
         self.bricks = std.ArrayList(Brick).init(alloc);
         self.mesh = Mesh.init(alloc);
 
+        try self.bricks.append(Brick.initEvenGrid());
+
         for (0..4096) |i| {
             self.brickps[i] = .{
                 .loaded = false,
                 .requested = false,
-                .sparse = false,
+                .sparse = true,
                 .ptr = 0,
                 .padding = false,
             };
@@ -58,27 +60,26 @@ pub const Chunk = struct {
         self.mesh.deinit();
     }
 
-    // TODO: fix alignment issue and find out how to index from fsh
-    // pub fn getBricks(self: *Chunk) [*]const u32 {
-    //     return @ptrCast(self.bricks.items.ptr);
-    // }
+    pub fn getBricks(self: *Chunk) [*]const Brick {
+        return self.bricks.items.ptr;
+    }
 
     pub fn numBricks(self: *Chunk) usize {
         return self.bricks.items.len;
     }
 
     pub fn get(self: *Chunk, x: usize, y: usize, z: usize) BrickPtr {
-        return self.brickps[x + y * 16 + z * 256];
+        return self.brickps[Chunk.idx(x, y, z)];
     }
 
     pub fn set(self: *Chunk, x: usize, y: usize, z: usize) void {
-        var brickp = &self.brickps[x + y * 16 + z * 256];
+        var brickp = &self.brickps[Chunk.idx(x, y, z)];
         brickp.sparse = false;
         brickp.ptr = 1;
     }
 
     pub fn unset(self: *Chunk, x: usize, y: usize, z: usize) void {
-        var brickp = &self.brickps[x + y * 16 + z * 256];
+        var brickp = &self.brickps[Chunk.idx(x, y, z)];
         brickp.sparse = false;
         brickp.ptr = 0;
     }
@@ -96,6 +97,10 @@ pub const Chunk = struct {
     pub fn remesh(self: *Chunk) !void {
         try self.mesh.generate(self);
     }
+
+    fn idx(x: usize, y: usize, z: usize) usize {
+        return x + 16 * y + 256 * z;
+    }
 };
 
 // note that a brick that's completely filled but made of multiple separate materials is nonetheless considered 'sparse'. maybe this could be optimized in the future to just be rasterized with some kind of texture lookup instead of spending one raymarching step
@@ -109,6 +114,23 @@ pub const BrickPtr = packed struct {
 
 pub const Brick = struct {
     voxels: [8 * 8 * 8]Voxel,
+
+    fn initEvenGrid() Brick {
+        var self: Brick = undefined;
+
+        for (0..8) |x| {
+            for (0..8) |y| {
+                for (0..8) |z| {
+                    self.voxels[x + 8 * y + 64 * z] = .{
+                        .material = 1,
+                        .padding = 0,
+                    };
+                }
+            }
+        }
+
+        return self;
+    }
 };
 
 pub const Voxel = packed struct {
@@ -159,15 +181,15 @@ pub const Mesh = struct {
                     for (0..6) |i| {
                         const face: Face = @enumFromInt(i);
 
-                        const nx = @as(i32, @intCast(x)) + face.dx();
-                        const ny = @as(i32, @intCast(y)) + face.dy();
-                        const nz = @as(i32, @intCast(z)) + face.dz();
-
-                        if (nx >= 0 and nx < 16 and ny >= 0 and ny < 16 and nz >= 0 and nz < 16) {
-                            if (chunk.isFull(@intCast(nx), @intCast(ny), @intCast(nz))) {
-                                continue;
-                            }
-                        }
+                        // const nx = @as(i32, @intCast(x)) + face.dx();
+                        // const ny = @as(i32, @intCast(y)) + face.dy();
+                        // const nz = @as(i32, @intCast(z)) + face.dz();
+                        //
+                        // if (nx >= 0 and nx < 16 and ny >= 0 and ny < 16 and nz >= 0 and nz < 16) {
+                        //     if (chunk.isFull(@intCast(nx), @intCast(ny), @intCast(nz))) {
+                        //         continue;
+                        //     }
+                        // }
 
                         try self.add_face(chunk, x, y, z, face);
                     }

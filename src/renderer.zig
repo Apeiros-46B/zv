@@ -39,8 +39,8 @@ pub fn init(alloc: std.mem.Allocator, window: sdl.Window) !Self {
     self.chunk = try World.Chunk.init(alloc);
     errdefer self.chunk.deinit();
 
-    self.chunk.set(0, 0, 0);
-    self.chunk.set(2, 0, 0);
+    // self.chunk.set(0, 0, 0);
+    // self.chunk.set(2, 0, 0);
     try self.chunk.remesh();
 
     self.gl_ctx = try sdl.gl.createContext(window);
@@ -74,8 +74,8 @@ pub fn init(alloc: std.mem.Allocator, window: sdl.Window) !Self {
     self.pass.use();
     self.face_ssbo.storage(u32, self.chunk.mesh.numFaces(), self.chunk.mesh.getFaces(), .{});
     gl.bindBufferBase(.shader_storage_buffer, 0, self.face_ssbo);
-    // self.brick_ssbo.storage(u8192, self.chunk.numBricks(), self.chunk.getBricks(), .{});
-    // gl.bindBufferBase(.shader_storage_buffer, 1, self.brick_ssbo);
+    self.brick_ssbo.storage(World.Brick, self.chunk.numBricks(), self.chunk.getBricks(), .{});
+    gl.bindBufferBase(.shader_storage_buffer, 1, self.brick_ssbo);
 
     log.print(.debug, "renderer", "init complete", .{});
 
