@@ -28,7 +28,7 @@ pub const ChunkPtr = packed struct {
 pub const Chunk = struct {
     alloc: std.mem.Allocator,
     brickps: []BrickPtr,
-    bricks: std.ArrayList(Brick),
+    bricks: std.ArrayListAligned(Brick, 4),
     mesh: Mesh,
 
     pub fn init(alloc: std.mem.Allocator) !Chunk {
@@ -36,7 +36,7 @@ pub const Chunk = struct {
 
         self.alloc = alloc;
         self.brickps = try alloc.alloc(BrickPtr, 4096);
-        self.bricks = std.ArrayList(Brick).init(alloc);
+        self.bricks = std.ArrayListAligned(Brick, 4).init(alloc);
         self.mesh = Mesh.init(alloc);
 
         try self.bricks.append(Brick.initEvenGrid());
@@ -60,12 +60,13 @@ pub const Chunk = struct {
         self.mesh.deinit();
     }
 
-    pub fn getBricks(self: *Chunk) [*]const Brick {
-        return self.bricks.items.ptr;
+    // returns pointer to pairs of voxels
+    pub fn getVoxels(self: *Chunk) [*]const u32 {
+        return @ptrCast(self.bricks.items.ptr);
     }
 
-    pub fn numBricks(self: *Chunk) usize {
-        return self.bricks.items.len;
+    pub fn numVoxels(self: *Chunk) usize {
+        return self.bricks.items.len * 256;
     }
 
     pub fn get(self: *Chunk, x: usize, y: usize, z: usize) BrickPtr {
@@ -121,8 +122,12 @@ pub const Brick = struct {
         for (0..8) |x| {
             for (0..8) |y| {
                 for (0..8) |z| {
+                    var material: u12 = 0;
+                    if (x % 2 == 0 and y % 2 == 0 and z % 2 == 0) {
+                        material = 1;
+                    }
                     self.voxels[x + 8 * y + 64 * z] = .{
-                        .material = 1,
+                        .material = material,
                         .padding = 0,
                     };
                 }

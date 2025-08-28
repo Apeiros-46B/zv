@@ -74,7 +74,7 @@ pub fn init(alloc: std.mem.Allocator, window: sdl.Window) !Self {
     self.pass.use();
     self.face_ssbo.storage(u32, self.chunk.mesh.numFaces(), self.chunk.mesh.getFaces(), .{});
     gl.bindBufferBase(.shader_storage_buffer, 0, self.face_ssbo);
-    self.brick_ssbo.storage(World.Brick, self.chunk.numBricks(), self.chunk.getBricks(), .{});
+    self.brick_ssbo.storage(u32, self.chunk.numVoxels() / 2, self.chunk.getVoxels(), .{});
     gl.bindBufferBase(.shader_storage_buffer, 1, self.brick_ssbo);
 
     log.print(.debug, "renderer", "init complete", .{});

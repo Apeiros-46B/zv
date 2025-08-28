@@ -1,9 +1,5 @@
 #version 430
 
-struct Brick {
-	uint voxels[256];
-};
-
 struct Ray {
 	vec3 pos;
 	vec3 dir;
@@ -15,8 +11,8 @@ struct Hit {
 	ivec3 pos;
 };
 
-layout(std430, binding = 1) readonly buffer bricks_buf {
-	Brick bricks[];
+layout(std430, binding = 1) readonly buffer voxels_buf {
+	uint voxels[];
 };
 
 in vec2 uv;
@@ -48,10 +44,10 @@ Ray getPrimaryRay(vec3 pos) {
 	return Ray(pos, dir.xyz);
 }
 
+// TODO: half the brick is missing, and there are thin planes on the edges of the brick
 uint getVoxel(ivec3 pos) {
-	Brick brick = bricks[brick_ptr];
 	uint idx = pos.x + 8 * pos.y + 64 * pos.z;
-	uint two_voxels = brick.voxels[idx >> 1];
+	uint two_voxels = voxels[brick_ptr * 128 + (idx >> 1)];
 	return bitfieldExtract(two_voxels, int((idx & 1) * 16), 16);
 }
 
