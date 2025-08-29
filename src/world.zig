@@ -40,26 +40,32 @@ pub const Chunk = struct {
         self.mesh = Mesh.init(alloc);
 
         try self.bricks.append(Brick.initGrid(true));
-        try self.bricks.append(Brick.initGrid(false));
         try self.bricks.append(Brick.initSphere());
 
-        for (0..4096) |i| {
-            self.brickps[i] = .{
-                .loaded = false,
-                .requested = false,
-                .sparse = false,
-                .ptr = 0,
-                .padding = false,
-            };
-        }
-        for (0..3) |i| {
-            self.brickps[i * 2] = .{
-                .loaded = false,
-                .requested = false,
-                .sparse = true,
-                .ptr = @intCast(i),
-                .padding = false,
-            };
+        for (0..16) |x| {
+            for (0..16) |y| {
+                for (0..16) |z| {
+                    var sparse: bool = true;
+                    var ptr: u12 = undefined;
+
+                    if (x % 2 == 0 and y % 2 == 0 and z % 2 == 0) {
+                        ptr = 0;
+                    } else if (x % 2 == 1 and y % 2 == 1 and z % 2 == 1) {
+                        ptr = 1;
+                    } else {
+                        sparse = false;
+                        ptr = 0;
+                    }
+
+                    self.brickps[Chunk.idx(x, y, z)] = .{
+                        .loaded = false,
+                        .requested = false,
+                        .sparse = sparse,
+                        .ptr = ptr,
+                        .padding = false,
+                    };
+                }
+            }
         }
 
         return self;
@@ -143,7 +149,7 @@ pub const Brick = struct {
                             material = 1;
                         }
                     }
-                    self.voxels[x + 8 * y + 64 * z] = .{
+                    self.voxels[Brick.idx(x, y, z)] = .{
                         .material = material,
                         .padding = 0,
                     };
@@ -160,11 +166,35 @@ pub const Brick = struct {
         for (0..8) |x| {
             for (0..8) |y| {
                 for (0..8) |z| {
+                    const nx = @as(f32, @floatFromInt(x)) - 3.5;
+                    const ny = @as(f32, @floatFromInt(y)) - 3.5;
+                    const nz = @as(f32, @floatFromInt(z)) - 3.5;
                     var material: u12 = 0;
-                    if (x * x + y * y + z * z < 16) {
+                    if (nx * nx + ny * ny + nz * nz < 16) {
                         material = 1;
                     }
-                    self.voxels[x + 8 * y + 64 * z] = .{
+                    self.voxels[Brick.idx(x, y, z)] = .{
+                        .material = material,
+                        .padding = 0,
+                    };
+                }
+            }
+        }
+
+        return self;
+    }
+
+    fn init2x2() Brick {
+        var self: Brick = undefined;
+
+        for (0..8) |x| {
+            for (0..8) |y| {
+                for (0..8) |z| {
+                    var material: u12 = 0;
+                    if (x > 2 and x < 5 and y > 2 and y < 5 and z > 2 and z < 5) {
+                        material = 1;
+                    }
+                    self.voxels[Brick.idx(x, y, z)] = .{
                         .material = material,
                         .padding = 0,
                     };
@@ -183,6 +213,10 @@ pub const Brick = struct {
             }
         }
         return count;
+    }
+
+    fn idx(x: usize, y: usize, z: usize) usize {
+        return x + 8 * y + 64 * z;
     }
 };
 

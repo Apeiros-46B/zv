@@ -39,8 +39,6 @@ pub fn init(alloc: std.mem.Allocator, window: sdl.Window) !Self {
     self.chunk = try World.Chunk.init(alloc);
     errdefer self.chunk.deinit();
 
-    // self.chunk.set(0, 0, 0);
-    // self.chunk.set(2, 0, 0);
     try self.chunk.remesh();
 
     self.gl_ctx = try sdl.gl.createContext(window);
@@ -97,7 +95,7 @@ pub fn draw(self: *Self, input: *const InputState, camera: *const Camera) !void 
         self.pass.recompile();
     }
 
-    gl.clearColor(0.5, 0.5, 0.5, 1.0);
+    gl.clearColor(1.0, 1.0, 1.0, 1.0);
     gl.clear(.{ .color = true, .depth = true });
 
     self.pass.use();
