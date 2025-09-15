@@ -12,7 +12,8 @@ const Self = @This();
 
 alloc: std.mem.Allocator,
 window: sdl.Window,
-chunk: World.Chunk,
+world: World,
+region: World.Region,
 
 gl_ctx: sdl.gl.Context,
 vao: gl.VertexArray,
@@ -36,10 +37,10 @@ pub fn init(alloc: std.mem.Allocator, window: sdl.Window) !Self {
 
     self.alloc = alloc;
     self.window = window;
-    self.chunk = try World.Chunk.init(alloc);
-    errdefer self.chunk.deinit();
+    self.world = try World.init(alloc);
+    errdefer self.world.deinit();
 
-    try self.chunk.remesh();
+    self.region = self.world.regions.get(.{ .x = 0, .y = 0, .z = 0 }).?;
 
     self.gl_ctx = try sdl.gl.createContext(window);
     errdefer self.gl_ctx.delete();
@@ -57,9 +58,13 @@ pub fn init(alloc: std.mem.Allocator, window: sdl.Window) !Self {
     log.print(.debug, "renderer", "vao created", .{});
 
     self.face_ssbo = gl.Buffer.create();
+    self.face_ssbo.storage(u32, 16*16*16*6, null, .{ .dynamic_storage = true });
     errdefer self.face_ssbo.delete();
+
     self.brick_ssbo = gl.Buffer.create();
+    self.brick_ssbo.storage(u32, 16*16*16*256, null, .{ .dynamic_storage = true });
     errdefer self.brick_ssbo.delete();
+
     log.print(.debug, "renderer", "ssbos created", .{});
 
     gl.enable(.depth_test);
@@ -69,20 +74,15 @@ pub fn init(alloc: std.mem.Allocator, window: sdl.Window) !Self {
 
     self.pass = try ShaderPass.init(alloc);
 
-    self.pass.use();
-    self.face_ssbo.storage(u32, self.chunk.mesh.numFaces(), self.chunk.mesh.getFaces(), .{});
-    gl.bindBufferBase(.shader_storage_buffer, 0, self.face_ssbo);
-    self.brick_ssbo.storage(u32, self.chunk.numVoxels() / 2, self.chunk.getVoxels(), .{});
-    gl.bindBufferBase(.shader_storage_buffer, 1, self.brick_ssbo);
-
     log.print(.debug, "renderer", "init complete", .{});
 
     return self;
 }
 
 pub fn deinit(self: Self) void {
-    self.chunk.deinit();
+    self.world.deinit();
     self.pass.deinit();
+    self.brick_ssbo.delete();
     self.face_ssbo.delete();
     self.vao.delete();
     self.gl_ctx.delete();
@@ -98,20 +98,30 @@ pub fn draw(self: *Self, input: *const InputState, camera: *const Camera) !void 
     gl.clearColor(1.0, 1.0, 1.0, 1.0);
     gl.clear(.{ .color = true, .depth = true });
 
-    self.pass.use();
     self.vao.bind();
-    self.face_ssbo.bind(.shader_storage_buffer);
-
-    const model = zlm.Mat4.identity;
-    self.pass.setMat4("model", model);
+    self.pass.use();
     self.pass.setMat4("view", camera.view);
     self.pass.setMat4("proj", camera.proj);
-
     self.pass.setVec2("scr_size", self.scr_size);
     self.pass.setMat4("inv_view", camera.inv_view);
     self.pass.setMat4("inv_proj", camera.inv_proj);
 
-    gl.drawArrays(.triangles, 0, self.chunk.mesh.numFaces() * 3);
+    for (self.region.chunkps, 0..) |chunkp, i| {
+        if (!chunkp.sparse and chunkp.ptr == 0) {
+            continue;
+        } else if (!chunkp.sparse) {
+            // TODO
+        } else {
+            const chunk = self.region.data.items[chunkp.ptr];
+            self.pass.setVec3Coord("chunk_ofs", self.region.chunkOfs(i));
+            self.face_ssbo.subData(0, u32, chunk.mesh.getFaces());
+            gl.bindBufferBase(.shader_storage_buffer, 0, self.face_ssbo);
+            self.brick_ssbo.subData(0, u32, chunk.getVoxels());
+            gl.bindBufferBase(.shader_storage_buffer, 1, self.brick_ssbo);
+
+            gl.drawArrays(.triangles, 0, chunk.mesh.numFaces() * 3);
+        }
+    }
 
     sdl.gl.swapWindow(self.window);
 }
@@ -178,6 +188,16 @@ const ShaderPass = struct {
     fn setVec3(self: *ShaderPass, name: [:0]const u8, value: zlm.Vec3) void {
         const location = self.getLocation(name) orelse return;
         self.prg.uniform3f(location, value.x, value.y, value.z);
+    }
+
+    fn setVec3Coord(self: *ShaderPass, name: [:0]const u8, value: World.Coord) void {
+        const location = self.getLocation(name) orelse return;
+        self.prg.uniform3f(
+            location,
+            util.i2f(value.x),
+            util.i2f(value.y),
+            util.i2f(value.z),
+        );
     }
 
     fn setUint(self: *ShaderPass, name: [:0]const u8, value: anytype) void {

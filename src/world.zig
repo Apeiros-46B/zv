@@ -4,7 +4,29 @@ const log = @import("log.zig");
 
 const Self = @This();
 
+alloc: std.mem.Allocator,
 regions: std.AutoHashMap(Coord, Region),
+
+pub fn init(alloc: std.mem.Allocator) !Self {
+    var self: Self = undefined;
+
+    self.alloc = alloc;
+    self.regions = std.AutoHashMap(Coord, Region).init(alloc);
+    errdefer self.regions.deinit();
+
+    const coord = Coord { .x = 0, .y = 0, .z = 0 };
+    try self.regions.put(coord, try Region.init(alloc, coord));
+
+    return self;
+}
+
+pub fn deinit(self: Self) void {
+    var iter = self.regions.valueIterator();
+    while (iter.next()) |region| {
+        region.deinit();
+    }
+    @constCast(&self.regions).deinit();
+}
 
 pub const Coord = struct {
     x: i64,
@@ -14,8 +36,49 @@ pub const Coord = struct {
 
 // 32*32*32 chunks
 pub const Region = struct {
-    chunks: [32 * 32 * 32]ChunkPtr,
+    alloc: std.mem.Allocator,
+    coord: Coord,
+    chunkps: []ChunkPtr,
     data: std.ArrayList(Chunk),
+
+    pub fn init(alloc: std.mem.Allocator, coord: Coord) !Region {
+        var self: Region = undefined;
+
+        self.alloc = alloc;
+        self.coord = coord;
+        self.chunkps = try alloc.alloc(ChunkPtr, 32*32*32);
+        self.data = std.ArrayList(Chunk).init(alloc);
+
+        try self.data.append(try Chunk.init(alloc));
+
+        for (0..32*32*32) |i| {
+            self.chunkps[i] = .{ .sparse = false, .ptr = 0 };
+        }
+        self.chunkps[0] = .{ .sparse = true, .ptr = 0 };
+        self.chunkps[1] = .{ .sparse = true, .ptr = 0 };
+
+        return self;
+    }
+
+    pub fn deinit(self: Region) void {
+        for (self.data.items) |chunk| {
+            chunk.deinit();
+        }
+        self.alloc.free(self.chunkps);
+        self.data.deinit();
+    }
+
+    // returned coordinate is in brick lengths (coordinate system where brick is 1x1x1)
+    pub fn chunkOfs(self: *const Region, i: usize) Coord {
+        const x: i64 = @intCast(i % 32);
+        const y: i64 = @intCast((i / 32) % 32);
+        const z: i64 = @intCast(i / (32*32));
+        return .{
+            .x = x * 16 + self.coord.x * 512,
+            .y = y * 16 + self.coord.y * 512,
+            .z = z * 16 + self.coord.z * 512,
+        };
+    }
 };
 
 pub const ChunkPtr = packed struct {
@@ -35,7 +98,7 @@ pub const Chunk = struct {
         var self: Chunk = undefined;
 
         self.alloc = alloc;
-        self.brickps = try alloc.alloc(BrickPtr, 4096);
+        self.brickps = try alloc.alloc(BrickPtr, 16*16*16);
         self.bricks = std.ArrayListAligned(Brick, 4).init(alloc);
         self.mesh = Mesh.init(alloc);
 
@@ -50,7 +113,7 @@ pub const Chunk = struct {
 
                     if (x % 2 == 0 and y % 2 == 0 and z % 2 == 0) {
                         ptr = 0;
-                    } else if (x % 2 == 1 and y % 2 == 1 and z % 2 == 1) {
+                    } else if (x % 2 == 1 and y % 2 == 1 and z % 2 == 1 and x != 15 and y != 15 and z != 15) {
                         ptr = 1;
                     } else {
                         sparse = false;
@@ -68,6 +131,8 @@ pub const Chunk = struct {
             }
         }
 
+        try self.remesh();
+
         return self;
     }
 
@@ -78,13 +143,13 @@ pub const Chunk = struct {
     }
 
     // returns pointer to pairs of voxels
-    pub fn getVoxels(self: *Chunk) [*]const u32 {
-        return @ptrCast(self.bricks.items.ptr);
+    pub fn getVoxels(self: *const Chunk) []align(1) const u32 {
+        return @ptrCast(self.bricks.items.ptr[0..self.bricks.items.len]);
     }
 
-    pub fn numVoxels(self: *Chunk) usize {
-        return self.bricks.items.len * 512;
-    }
+    // pub fn numVoxels(self: *const Chunk) usize {
+    //     return self.bricks.items.len * 512;
+    // }
 
     pub fn get(self: *Chunk, x: usize, y: usize, z: usize) BrickPtr {
         return self.brickps[Chunk.idx(x, y, z)];
@@ -114,6 +179,10 @@ pub const Chunk = struct {
 
     pub fn remesh(self: *Chunk) !void {
         try self.mesh.generate(self);
+    }
+
+    pub fn debugPrint(self: *const Chunk) void {
+        log.print(.debug, "Chunk", "#bricks={},#faces={}", .{ self.bricks.items.len, self.mesh.numFaces() });
     }
 
     fn idx(x: usize, y: usize, z: usize) usize {
@@ -238,11 +307,11 @@ pub const Mesh = struct {
         self.faces.deinit();
     }
 
-    pub fn getFaces(self: *Mesh) [*]const u32 {
-        return @ptrCast(self.faces.items.ptr);
+    pub fn getFaces(self: *const Mesh) []align(1) const u32 {
+        return @ptrCast(self.faces.items.ptr[0..self.faces.items.len]);
     }
 
-    pub fn numFaces(self: *Mesh) usize {
+    pub fn numFaces(self: *const Mesh) usize {
         return self.faces.items.len;
     }
 
@@ -294,7 +363,7 @@ pub const PackedFace = packed struct {
     brickp: BrickPtr,
 
     fn debugPrint(self: PackedFace) void {
-        log.print(.debug, "mesh", "face: ({}, {}, {}) {s}", .{ self.x, self.y, self.z, @tagName(self.face) });
+        log.print(.debug, "Mesh", "face: ({}, {}, {}) {s}", .{ self.x, self.y, self.z, @tagName(self.face) });
     }
 };
 

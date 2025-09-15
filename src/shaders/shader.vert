@@ -10,9 +10,9 @@ out vec3 pos_in_brick;
 flat out uint brick_sparse;
 flat out uint brick_ptr;
 
-uniform mat4 model;
 uniform mat4 view;
 uniform mat4 proj;
+uniform vec3 chunk_ofs;
 
 const vec3 face_verts_pos[] = vec3[] (
 	vec3(0.0f, 0.0f, 0.0f),
@@ -44,55 +44,55 @@ void main() {
 	brick_sparse = bitfieldExtract(face_data, 18, 1);
 	brick_ptr = bitfieldExtract(face_data, 19, 12);
 
-	vec3 global_pos = vec3(x, y, z);
-	vec3 local_pos;
+	vec3 chunk_local_pos = vec3(x, y, z);
+	vec3 brick_local_pos;
 	
 	switch (f) {
 		case FACE_XP:
 		case FACE_YN:
 		case FACE_ZP:
-	 		local_pos = face_verts_pos[gl_VertexID % 3];
+	 		brick_local_pos = face_verts_pos[gl_VertexID % 3];
 			break;
 		case FACE_XN:
 		case FACE_YP:
 		case FACE_ZN:
-			local_pos = face_verts_pos_ccw[gl_VertexID % 3];
+			brick_local_pos = face_verts_pos_ccw[gl_VertexID % 3];
 			break;
 	}
 	
-	uv = local_pos.xz;
+	uv = brick_local_pos.xz;
 
 	switch (f) {
 		case FACE_XP:
-			local_pos.yz = local_pos.xz;
-			local_pos.x = 1.0;
+			brick_local_pos.yz = brick_local_pos.xz;
+			brick_local_pos.x = 1.0;
 			normal = vec3(1.0, 0.0, 0.0);
 			break;
 		case FACE_XN:
-			local_pos.yz = local_pos.xz;
-			local_pos.x = 0.0;
+			brick_local_pos.yz = brick_local_pos.xz;
+			brick_local_pos.x = 0.0;
 			normal = vec3(-1.0, 0.0, 0.0);
 			break;
 		case FACE_YP:
-			local_pos.y++;
+			brick_local_pos.y++;
 			normal = vec3(0.0, 1.0, 0.0);
 			break;
 		case FACE_YN:
 			normal = vec3(0.0, -1.0, 0.0);
 			break;
 		case FACE_ZP:
-			local_pos.xy = local_pos.xz;
-			local_pos.z = 1.0;
+			brick_local_pos.xy = brick_local_pos.xz;
+			brick_local_pos.z = 1.0;
 			normal = vec3(0.0, 0.0, 1.0);
 			break;
 		case FACE_ZN:
-			local_pos.xy = local_pos.xz;
-			local_pos.z = 0.0;
+			brick_local_pos.xy = brick_local_pos.xz;
+			brick_local_pos.z = 0.0;
 			normal = vec3(0.0, 0.0, -1.0);
 			break;
 	}
 
-	pos_in_brick = local_pos * 8.0;
+	pos_in_brick = brick_local_pos * 8.0;
 
-	gl_Position = proj * view * model * vec4(local_pos + global_pos, 1.0);
+	gl_Position = proj * view * vec4(brick_local_pos + chunk_local_pos + chunk_ofs, 1.0);
 }
