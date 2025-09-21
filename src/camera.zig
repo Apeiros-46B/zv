@@ -44,7 +44,7 @@ pub fn init(window: sdl.Window) Self {
     self.rot_speed = 5;
     self.fov = zlm.toRadians(45.0);
     self.near_clip = 0.01;
-    self.far_clip = 100.0;
+    self.far_clip = 1000.0;
 
     self.pos = zlm.vec3(0, 0, 2);
     self.pitch = 0.0;

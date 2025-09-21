@@ -17,6 +17,17 @@ pub fn build(b: *std.Build) void {
     });
 
     // dependencies
+    const tracy_enable = b.option(bool, "tracy_enable", "Enable profiling") orelse false;
+
+    const tracy = b.dependency("tracy", .{
+        .target = target,
+        .optimize = optimize,
+        .tracy_enable = tracy_enable,
+    });
+    exe_mod.addImport("tracy", tracy.module("tracy"));
+    exe.linkLibrary(tracy.artifact("tracy"));
+    exe.linkLibCpp();
+
     const zgl = b.dependency("zgl", .{
         .target = target,
         .optimize = optimize,

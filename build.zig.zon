@@ -5,6 +5,10 @@
     .minimum_zig_version = "0.14.0",
 
     .dependencies = .{
+        .tracy = .{
+            .url = "git+https://github.com/cipharius/zig-tracy.git#fb0c7693726fc41a1d9e3ab2a897dc663d884584",
+            .hash = "zig_tracy-0.0.5-aOIqsQdyAADb7w5ji1KMsWBV6ek3SftSsY2yfTvUHycr",
+        },
         .sdl = .{
             .url = "git+https://github.com/ikskuh/SDL.zig.git#424ff5f9245ef352e4c508c77ddaeed2f46bd605",
             .hash = "SDL2-0.0.0-yMCQigakBADGJHtb2ljt13P_cCnG8Y819HRnIibNVPFk",

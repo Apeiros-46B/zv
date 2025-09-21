@@ -47,8 +47,8 @@ pub fn init(alloc: std.mem.Allocator, window: sdl.Window) !Self {
     try self.gl_ctx.makeCurrent(window);
     log.print(.debug, "renderer", "context loaded", .{});
 
-    try sdl.gl.setSwapInterval(.vsync);
-    // try sdl.gl.setSwapInterval(.immediate);
+    // try sdl.gl.setSwapInterval(.vsync);
+    try sdl.gl.setSwapInterval(.immediate);
 
     try gl.loadExtensions(void, getProcAddressWrapper);
     log.print(.debug, "renderer", "extensions loaded", .{});
@@ -58,11 +58,11 @@ pub fn init(alloc: std.mem.Allocator, window: sdl.Window) !Self {
     log.print(.debug, "renderer", "vao created", .{});
 
     self.face_ssbo = gl.Buffer.create();
-    self.face_ssbo.storage(u32, 16*16*16*6, null, .{ .dynamic_storage = true });
+    self.face_ssbo.storage(u32, 16 * 16 * 16 * 6, null, .{ .dynamic_storage = true });
     errdefer self.face_ssbo.delete();
 
     self.brick_ssbo = gl.Buffer.create();
-    self.brick_ssbo.storage(u32, 16*16*16*256, null, .{ .dynamic_storage = true });
+    self.brick_ssbo.storage(u32, 16 * 16 * 16 * 256, null, .{ .dynamic_storage = true });
     errdefer self.brick_ssbo.delete();
 
     log.print(.debug, "renderer", "ssbos created", .{});

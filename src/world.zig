@@ -14,7 +14,7 @@ pub fn init(alloc: std.mem.Allocator) !Self {
     self.regions = std.AutoHashMap(Coord, Region).init(alloc);
     errdefer self.regions.deinit();
 
-    const coord = Coord { .x = 0, .y = 0, .z = 0 };
+    const coord = Coord{ .x = 0, .y = 0, .z = 0 };
     try self.regions.put(coord, try Region.init(alloc, coord));
 
     return self;
@@ -46,16 +46,17 @@ pub const Region = struct {
 
         self.alloc = alloc;
         self.coord = coord;
-        self.chunkps = try alloc.alloc(ChunkPtr, 32*32*32);
+        self.chunkps = try alloc.alloc(ChunkPtr, 32 * 32 * 32);
         self.data = std.ArrayList(Chunk).init(alloc);
 
         try self.data.append(try Chunk.init(alloc));
 
-        for (0..32*32*32) |i| {
+        for (0..32 * 32 * 32) |i| {
             self.chunkps[i] = .{ .sparse = false, .ptr = 0 };
         }
-        self.chunkps[0] = .{ .sparse = true, .ptr = 0 };
-        self.chunkps[1] = .{ .sparse = true, .ptr = 0 };
+        for (0..64) |i| {
+            self.chunkps[i] = .{ .sparse = true, .ptr = 0 };
+        }
 
         return self;
     }
@@ -72,7 +73,7 @@ pub const Region = struct {
     pub fn chunkOfs(self: *const Region, i: usize) Coord {
         const x: i64 = @intCast(i % 32);
         const y: i64 = @intCast((i / 32) % 32);
-        const z: i64 = @intCast(i / (32*32));
+        const z: i64 = @intCast(i / (32 * 32));
         return .{
             .x = x * 16 + self.coord.x * 512,
             .y = y * 16 + self.coord.y * 512,
@@ -98,38 +99,49 @@ pub const Chunk = struct {
         var self: Chunk = undefined;
 
         self.alloc = alloc;
-        self.brickps = try alloc.alloc(BrickPtr, 16*16*16);
+        self.brickps = try alloc.alloc(BrickPtr, 16 * 16 * 16);
         self.bricks = std.ArrayListAligned(Brick, 4).init(alloc);
         self.mesh = Mesh.init(alloc);
 
         try self.bricks.append(Brick.initGrid(true));
-        try self.bricks.append(Brick.initSphere());
-
-        for (0..16) |x| {
-            for (0..16) |y| {
-                for (0..16) |z| {
-                    var sparse: bool = true;
-                    var ptr: u12 = undefined;
-
-                    if (x % 2 == 0 and y % 2 == 0 and z % 2 == 0) {
-                        ptr = 0;
-                    } else if (x % 2 == 1 and y % 2 == 1 and z % 2 == 1 and x != 15 and y != 15 and z != 15) {
-                        ptr = 1;
-                    } else {
-                        sparse = false;
-                        ptr = 0;
-                    }
-
-                    self.brickps[Chunk.idx(x, y, z)] = .{
-                        .loaded = false,
-                        .requested = false,
-                        .sparse = sparse,
-                        .ptr = ptr,
-                        .padding = false,
-                    };
-                }
-            }
+        for (0..4096) |i| {
+            self.brickps[i] = .{
+                .loaded = false,
+                .requested = false,
+                .sparse = true,
+                .ptr = 0,
+                .padding = false,
+            };
         }
+
+        // try self.bricks.append(Brick.initGrid(true));
+        // try self.bricks.append(Brick.initSphere());
+
+        // for (0..16) |x| {
+        //     for (0..16) |y| {
+        //         for (0..16) |z| {
+        //             var sparse: bool = true;
+        //             var ptr: u12 = undefined;
+
+        //             if (x % 2 == 0 and y % 2 == 0 and z % 2 == 0) {
+        //                 ptr = 0;
+        //             } else if (x % 2 == 1 and y % 2 == 1 and z % 2 == 1 and x != 15 and y != 15 and z != 15) {
+        //                 ptr = 1;
+        //             } else {
+        //                 sparse = false;
+        //                 ptr = 0;
+        //             }
+
+        //             self.brickps[Chunk.idx(x, y, z)] = .{
+        //                 .loaded = false,
+        //                 .requested = false,
+        //                 .sparse = sparse,
+        //                 .ptr = ptr,
+        //                 .padding = false,
+        //             };
+        //         }
+        //     }
+        // }
 
         try self.remesh();
 
